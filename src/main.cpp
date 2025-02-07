@@ -13,7 +13,7 @@ std::int32_t main(std::int32_t argc, gsl::zstring *argv) {
         std::cerr << "Failed to move monitor" << std::endl;
     }
 
-    veng::Graphics Graphics{gsl::make_not_null(&window)};
+    veng::Graphics graphics{gsl::make_not_null(&window)};
 
     while (!window.ShouldClose()) {
         glfwPollEvents();

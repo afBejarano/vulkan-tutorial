@@ -18,9 +18,16 @@ namespace veng {
 
         void CreateInstance();
 
-        gsl::span<gsl::czstring> CreateInstanceExtensions();
+        static gsl::span<gsl::czstring> GetSuggestedInstanceExtensions();
+        std::vector<gsl::czstring> GetRequiredInstanceExtensions();
+        static std::vector<VkExtensionProperties> GetSupportedInstanceExtensions();
+        static bool AreAllExtensionsSupported(const gsl::span<gsl::czstring> &extensions);
 
-        VkInstance instance_;
+        static std::vector<VkLayerProperties> GetSupportedValidationLayers();
+        static bool AreAllLayersSupported(const gsl::span<gsl::czstring> &extensions);
+
+        VkInstance instance_{};
         gsl::not_null<GLFW_Window *> window_;
+        bool validation_ = false;
     };
 } // veng
