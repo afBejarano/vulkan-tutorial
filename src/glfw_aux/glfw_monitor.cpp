@@ -21,7 +21,6 @@ namespace veng {
         return monitor_size;
     }
 
-
     void MoveWindowToMonitor(const gsl::not_null<GLFWwindow *> window, const gsl::not_null<GLFWmonitor *> monitor) {
         glm::ivec2 window_size;
         glfwGetWindowSize(window, &window_size.x, &window_size.y);

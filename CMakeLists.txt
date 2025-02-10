@@ -34,9 +34,18 @@ FetchContent_Declare(
 
 FetchContent_MakeAvailable(glfw)
 
+FetchContent_Declare(
+        spdlog
+        GIT_REPOSITORY "https://github.com/gabime/spdlog.git"
+        GIT_TAG "v1.15.1"
+        GIT_SHALLOW TRUE
+)
+
+FetchContent_MakeAvailable(spdlog)
+
 file(GLOB_RECURSE VulkanEngineSources CONFIGURE_DEPENDS
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp"
-    "${CMAKE_CURRENT_SOURCE_DIR}/src/*.h"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/*.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/*.h"
 )
 
 add_executable(VulkanEngine src/main.cpp
@@ -54,6 +63,7 @@ target_link_libraries(VulkanEngine PRIVATE Vulkan::Vulkan)
 target_link_libraries(VulkanEngine PRIVATE glm)
 target_link_libraries(VulkanEngine PRIVATE glfw)
 target_link_libraries(VulkanEngine PRIVATE Microsoft.GSL::GSL)
+target_link_libraries(VulkanEngine PRIVATE spdlog)
 
 target_include_directories(VulkanEngine PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src")
 

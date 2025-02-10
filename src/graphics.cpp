@@ -7,25 +7,50 @@
 #include <iostream>
 #include <precomp.h>
 #include <cstring>
+#include <spdlog/spdlog.h>
+
+#pragma region VK_FUNCITON_EXT_IMPL
+
+VKAPI_ATTR VkResult VKAPI_CALL vkCreateDebugUtilsMessengerEXT(VkInstance instance,
+                                                              const VkDebugUtilsMessengerCreateInfoEXT *pCreateInfo,
+                                                              const VkAllocationCallbacks *pAllocator,
+                                                              VkDebugUtilsMessengerEXT *pDebugMessenger) {
+    auto function = reinterpret_cast<PFN_vkCreateDebugUtilsMessengerEXT>(vkGetInstanceProcAddr(
+        instance, "vkCreateDebugUtilsMessengerEXT"));
+
+    if (function != nullptr) {
+        return function(instance, pCreateInfo, pAllocator, pDebugMessenger);
+    }
+    return VK_ERROR_EXTENSION_NOT_PRESENT;
+}
+
+VKAPI_ATTR void VKAPI_CALL vkDestroyDebugUtilsMessengerEXT(VkInstance instance,
+                                                           VkDebugUtilsMessengerEXT pDebugMessenger,
+                                                           const VkAllocationCallbacks *pAllocator) {
+    auto function = reinterpret_cast<PFN_vkDestroyDebugUtilsMessengerEXT>(vkGetInstanceProcAddr(
+        instance, "vkDestroyDebugUtilsMessengerEXT"));
+
+    if (function != nullptr) {
+        return function(instance, pDebugMessenger, pAllocator);
+    }
+}
+
+#pragma endregion
 
 namespace veng {
-    static VKAPI_ATTR VkBool32 VKAPI_CALL ValidationCallback(
-        VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
-        VkDebugUtilsMessageTypeFlagsEXT messageType,
-        const VkDebugUtilsMessengerCallbackDataEXT *pCallbackData,
-        void *user_data) {
-        if (messageSeverity == VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT) {
-            std::cout << "! ERROR: [InstanceCreation] (Error Code: " << pCallbackData->messageIdNumber << " ) " <<
-                    pCallbackData->pMessage << std::endl;
-        } else if (messageSeverity == VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT) {
-            std::cout << "! WARNING: [InstanceCreation] (Warning Code: " << pCallbackData->messageIdNumber << " ) " <<
-                    pCallbackData->pMessage << std::endl;
-        } else if (messageSeverity == VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT) {
-            std::cout << "INFO: [InstanceCreation] (Info Code: " << pCallbackData->messageIdNumber << " ) " <<
-                    pCallbackData->pMessage << std::endl;
+#pragma region VALIDATION_LAYERS
+    static VKAPI_ATTR VkBool32 VKAPI_CALL ValidationCallback(VkDebugUtilsMessageSeverityFlagBitsEXT messageSeverity,
+                                                             VkDebugUtilsMessageTypeFlagsEXT messageType,
+                                                             const VkDebugUtilsMessengerCallbackDataEXT *pCallbackData,
+                                                             void *user_data) {
+        if (messageSeverity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT) {
+            spdlog::error("Vulkan Validation: {}", pCallbackData->pMessage);
+        } else if (messageSeverity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT) {
+            spdlog::warn("Vulkan Validation: {}", pCallbackData->pMessage);
+        } else if (messageSeverity & VK_DEBUG_UTILS_MESSAGE_SEVERITY_INFO_BIT_EXT) {
+            spdlog::info("Vulkan Validation: {}", pCallbackData->pMessage);
         } else {
-            std::cout << "VERBOSE: [InstanceCreation] (Warning Code: " << pCallbackData->messageIdNumber << " ) " <<
-                    pCallbackData->pMessage << std::endl;
+            spdlog::debug("Vulkan Validation: {}", pCallbackData->pMessage);
         }
         return VK_FALSE;
     }
@@ -33,33 +58,58 @@ namespace veng {
     static VkDebugUtilsMessengerCreateInfoEXT GetCreateDebugMessengerInfo() {
         VkDebugUtilsMessengerCreateInfoEXT messengerCreateInfo = {};
         messengerCreateInfo.sType = VK_STRUCTURE_TYPE_DEBUG_UTILS_MESSENGER_CREATE_INFO_EXT;
+        messengerCreateInfo.pNext = nullptr;
+
         messengerCreateInfo.messageSeverity = VK_DEBUG_UTILS_MESSAGE_SEVERITY_WARNING_BIT_EXT |
-                                              VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT |
-                                              VK_DEBUG_UTILS_MESSAGE_SEVERITY_VERBOSE_BIT_EXT;
+                                              VK_DEBUG_UTILS_MESSAGE_SEVERITY_ERROR_BIT_EXT;
+
         messengerCreateInfo.messageType = VK_DEBUG_UTILS_MESSAGE_TYPE_GENERAL_BIT_EXT |
                                           VK_DEBUG_UTILS_MESSAGE_TYPE_VALIDATION_BIT_EXT;
+
         messengerCreateInfo.pfnUserCallback = ValidationCallback;
         messengerCreateInfo.pUserData = nullptr;
 
         return messengerCreateInfo;
     }
 
-    Graphics::Graphics(const gsl::not_null<GLFW_Window *> window): window_(window) {
-#if !defined(NDEBUG)
-        validation_ = true;
-#endif
-        InitializeVulkan();
-    }
-
-    Graphics::~Graphics() {
-        if (instance_ != nullptr) {
-            vkDestroyInstance(instance_, nullptr);
+    void Graphics::SetupDebugMessenger() {
+        if (!validation_) {
+            return;
         }
+
+        VkDebugUtilsMessengerCreateInfoEXT info = GetCreateDebugMessengerInfo();
+        if (vkCreateDebugUtilsMessengerEXT(instance_, &info, nullptr, &debug_messenger_) != VK_SUCCESS) {
+            spdlog::error("Failed to create debug messenger");
+            return;
+        };
     }
 
-    void Graphics::InitializeVulkan() {
-        CreateInstance();
+    std::vector<VkLayerProperties> Graphics::GetSupportedValidationLayers() {
+        std::uint32_t validation_layers_count = 0;
+        vkEnumerateInstanceLayerProperties(&validation_layers_count, nullptr);
+
+        if (validation_layers_count == 0) { return {}; }
+
+        std::vector<VkLayerProperties> layers(validation_layers_count);
+        vkEnumerateInstanceLayerProperties(&validation_layers_count, layers.data());
+        return layers;
     }
+
+    bool LayerMatchesName(const gsl::czstring layer_name, const VkLayerProperties &properties) {
+        return strcmp(properties.layerName, layer_name) == 0;
+    }
+
+    bool IsLayerSupported(gsl::span<VkLayerProperties> layers, gsl::czstring layer_name) {
+        return std::ranges::any_of(layers, std::bind_front(&LayerMatchesName, layer_name));
+    }
+
+    bool Graphics::AreAllLayersSupported(const gsl::span<gsl::czstring> &extensions) {
+        return std::ranges::all_of(extensions, std::bind_front(IsLayerSupported, GetSupportedValidationLayers()));
+    }
+
+#pragma endregion
+
+#pragma region INSTANCE_AND_EXTENSIONS
 
     void Graphics::CreateInstance() {
         std::array<gsl::czstring, 1> validationLayers = {"VK_LAYER_KHRONOS_validation"};
@@ -85,7 +135,7 @@ namespace veng {
         create_info.enabledExtensionCount = required_extensions.size();
         create_info.ppEnabledExtensionNames = required_extensions.data();
 
-        VkDebugUtilsMessengerCreateInfoEXT messenger_create_info = GetCreateDebugMessengerInfo();
+        const VkDebugUtilsMessengerCreateInfoEXT messenger_create_info = GetCreateDebugMessengerInfo();
 
         if (validation_) {
             create_info.pNext = &messenger_create_info;
@@ -108,7 +158,7 @@ namespace veng {
         return {extension_names, extension_count};
     }
 
-    std::vector<gsl::czstring> Graphics::GetRequiredInstanceExtensions() {
+    std::vector<gsl::czstring> Graphics::GetRequiredInstanceExtensions() const {
         gsl::span<gsl::czstring> suggested_extensions = GetSuggestedInstanceExtensions();
         std::vector<gsl::czstring> required_extensions(suggested_extensions.size());
         std::ranges::copy(suggested_extensions, required_extensions.begin());
@@ -147,27 +197,137 @@ namespace veng {
     bool Graphics::AreAllExtensionsSupported(const gsl::span<gsl::czstring> &extensions) {
         return std::ranges::all_of(extensions, std::bind_front(IsExtensionSupported, GetSupportedInstanceExtensions()));
     }
+#pragma endregion
 
-    std::vector<VkLayerProperties> Graphics::GetSupportedValidationLayers() {
-        std::uint32_t validation_layers_count = 0;
-        vkEnumerateInstanceLayerProperties(&validation_layers_count, nullptr);
+#pragma region DEVICES_AND_QUEUES
 
-        if (validation_layers_count == 0) { return {}; }
+    Graphics::QueueFamilyIndices Graphics::FindQueueFamilies(VkPhysicalDevice device) {
+        std::uint32_t graphics_families = 0;
+        vkGetPhysicalDeviceQueueFamilyProperties(device, &graphics_families, nullptr);
 
-        std::vector<VkLayerProperties> layers(validation_layers_count);
-        vkEnumerateInstanceLayerProperties(&validation_layers_count, layers.data());
-        return layers;
+        std::vector<VkQueueFamilyProperties> queue_families(graphics_families);
+        vkGetPhysicalDeviceQueueFamilyProperties(device, &graphics_families, queue_families.data());
+
+        auto graphics_family_it = std::ranges::find_if(queue_families, [](const VkQueueFamilyProperties &props) {
+            return props.queueFlags & (VK_QUEUE_GRAPHICS_BIT | VK_QUEUE_TRANSFER_BIT);
+        });
+
+        QueueFamilyIndices indices;
+        indices.graphics_family = graphics_family_it - queue_families.begin();
+
+        return indices;
     }
 
-    bool LayerMatchesName(const gsl::czstring layer_name, const VkLayerProperties &properties) {
-        return strcmp(properties.layerName, layer_name) == 0;
+    bool Graphics::IsDeviceSuitable(VkPhysicalDevice device) {
+        QueueFamilyIndices indices = FindQueueFamilies(device);
+
+        return indices.IsValid();
     }
 
-    bool IsLayerSupported(gsl::span<VkLayerProperties> layers, gsl::czstring layer_name) {
-        return std::ranges::any_of(layers, std::bind_front(&LayerMatchesName, layer_name));
+    void Graphics::PickPhysicalDevice() {
+        auto devices = GetPhysicalDevices();
+
+        std::erase_if(devices, std::not_fn(std::bind_front(&Graphics::IsDeviceSuitable, this)));
+        if (devices.empty()) {
+            spdlog::error("Failed to find a suitable GPU!");
+            std::exit(EXIT_FAILURE);
+        }
+
+        physical_device_ = devices[0];
     }
 
-    bool Graphics::AreAllLayersSupported(const gsl::span<gsl::czstring> &extensions) {
-        return std::ranges::all_of(extensions, std::bind_front(IsLayerSupported, GetSupportedValidationLayers()));
+    std::vector<VkPhysicalDevice> Graphics::GetPhysicalDevices() const {
+        std::uint32_t device_count = 0;
+        vkEnumeratePhysicalDevices(instance_, &device_count, nullptr);
+
+        if (device_count == 0) {
+            return {};
+        }
+
+        std::vector<VkPhysicalDevice> devices(device_count);
+        vkEnumeratePhysicalDevices(instance_, &device_count, devices.data());
+
+        return devices;
+    }
+
+    void Graphics::CreateLogicalDeviceAndQueues() {
+        QueueFamilyIndices indices = Graphics::FindQueueFamilies(physical_device_);
+
+        VkDeviceQueueCreateInfo queue_create_info = {};
+        queue_create_info.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
+        queue_create_info.queueFamilyIndex = indices.graphics_family.value();
+
+        if (!indices.IsValid()) {
+            std::exit(EXIT_FAILURE);
+        }
+
+        std::float_t queue_priorities = 1.0f;
+
+        queue_create_info.queueCount = 1;
+        queue_create_info.pQueuePriorities = &queue_priorities;
+        queue_create_info.pNext = nullptr;
+
+        VkPhysicalDeviceFeatures required_features = {};
+
+        VkDeviceCreateInfo create_info = {};
+        create_info.sType = VK_STRUCTURE_TYPE_DEVICE_CREATE_INFO;
+        create_info.queueCreateInfoCount = 1;
+        create_info.pQueueCreateInfos = &queue_create_info;
+        create_info.pEnabledFeatures = &required_features;
+        create_info.enabledExtensionCount = 0;
+        create_info.enabledLayerCount = 0;
+
+        if (vkCreateDevice(physical_device_, &create_info, nullptr, &device_) != VK_SUCCESS) {
+            spdlog::error("Failed to create logical device!");
+            std::exit(EXIT_FAILURE);
+        }
+
+        vkGetDeviceQueue(device_, queue_create_info.queueFamilyIndex, 0, &graphics_queue_);
+    }
+
+#pragma endregion
+
+#pragma region PRESENTATION
+
+    void Graphics::CreateSurface() {
+        if (glfwCreateWindowSurface(instance_, window_->GetHandle(), nullptr, &surface_) != VK_SUCCESS) {
+            spdlog::error("Failed to create window surface!");
+            std::exit(EXIT_FAILURE);
+        };
+    }
+
+
+#pragma endregion
+
+    Graphics::Graphics(const gsl::not_null<GLFW_Window *> window): window_(window) {
+#if !defined(NDEBUG)
+        validation_ = true;
+#endif
+        InitializeVulkan();
+    }
+
+    Graphics::~Graphics() {
+        if (device_ != nullptr) {
+            vkDestroyDevice(device_, nullptr);
+        }
+
+        if (instance_ != nullptr) {
+            if (surface_ != nullptr) {
+                vkDestroySurfaceKHR(instance_, surface_, nullptr);
+            }
+
+            if (debug_messenger_ != nullptr) {
+                vkDestroyDebugUtilsMessengerEXT(instance_, debug_messenger_, nullptr);
+            }
+            vkDestroyInstance(instance_, nullptr);
+        }
+    }
+
+    void Graphics::InitializeVulkan() {
+        CreateInstance();
+        SetupDebugMessenger();
+        PickPhysicalDevice();
+        CreateLogicalDeviceAndQueues();
+        CreateSurface();
     }
 } // veng
