@@ -12,6 +12,8 @@ namespace veng {
 
         glm::ivec2 GetWindowSize() const;
 
+        glm::ivec2 GetFrameBufferSize() const;
+
         bool ShouldClose() const;
 
         GLFWwindow *GetHandle() const;
