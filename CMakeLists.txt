@@ -5,6 +5,7 @@ set(CMAKE_CXX_STANDARD 20)
 
 find_package(Vulkan REQUIRED)
 
+include(cmake/Shaders.cmake)
 include(FetchContent)
 
 FetchContent_Declare(
@@ -57,7 +58,9 @@ add_executable(VulkanEngine src/main.cpp
         src/glfw_aux/glfw_window.cpp
         src/glfw_aux/glfw_window.h
         src/graphics.cpp
-        src/graphics.h)
+        src/graphics.h
+        src/utilities.cpp
+        src/utilities.h)
 
 target_link_libraries(VulkanEngine PRIVATE Vulkan::Vulkan)
 target_link_libraries(VulkanEngine PRIVATE glm)
@@ -70,3 +73,12 @@ target_include_directories(VulkanEngine PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src
 target_compile_features(VulkanEngine PRIVATE cxx_std_20)
 
 target_precompile_headers(VulkanEngine PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/src/precomp.h")
+
+file(GLOB_RECURSE ShaderSources CONFIGURE_DEPENDS
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/shaders/*.vert"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/shaders/*.frag"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/shaders/*.geom"
+)
+
+add_shaders(VulkanEngineShaders ${ShaderSources})
+add_dependencies(VulkanEngine VulkanEngineShaders)

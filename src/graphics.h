@@ -35,48 +35,37 @@ namespace veng {
         };
 
         void InitializeVulkan();
-
         void CreateInstance();
-
         void SetupDebugMessenger();
-
         void PickPhysicalDevice();
-
         void CreateLogicalDeviceAndQueues();
-
         void CreateSurface();
-
-        VkSurfaceFormatKHR ChooseSwapchainSurfaceFormat(gsl::span<VkSurfaceFormatKHR> formats);
-
-        VkPresentModeKHR ChooseSwapchainPresentMode(gsl::span<VkPresentModeKHR> present_modes);
-
-        VkExtent2D ChooseSwapchainExtent(VkSurfaceCapabilitiesKHR capabilities);
-
         void CreateSwapChain();
-
-        static gsl::span<gsl::czstring> GetSuggestedInstanceExtensions();
+        void CreateImageViews();
+        void CreateRenderPass();
+        void CreateGraphicsPipeline();
 
         std::vector<gsl::czstring> GetRequiredInstanceExtensions() const;
-
+        static gsl::span<gsl::czstring> GetSuggestedInstanceExtensions();
         static std::vector<VkExtensionProperties> GetSupportedInstanceExtensions();
-
         static bool AreAllExtensionsSupported(const gsl::span<gsl::czstring> &extensions);
 
         static std::vector<VkLayerProperties> GetSupportedValidationLayers();
-
         static bool AreAllLayersSupported(const gsl::span<gsl::czstring> &extensions);
 
         QueueFamilyIndices FindQueueFamilies(VkPhysicalDevice device);
-
         SwapChainSupportDetails FindSwapChainSupport(VkPhysicalDevice device);
-
+        bool IsDeviceSuitable(VkPhysicalDevice device);
+        std::vector<VkPhysicalDevice> GetPhysicalDevices() const;
         std::vector<VkExtensionProperties> GetDeviceAvaliableExtensions(VkPhysicalDevice device);
-
         bool AreAllDeviceExtensionsSupported(VkPhysicalDevice device);
 
-        bool IsDeviceSuitable(VkPhysicalDevice device);
+        VkSurfaceFormatKHR ChooseSwapchainSurfaceFormat(gsl::span<VkSurfaceFormatKHR> formats);
+        VkPresentModeKHR ChooseSwapchainPresentMode(gsl::span<VkPresentModeKHR> present_modes);
+        VkExtent2D ChooseSwapchainExtent(VkSurfaceCapabilitiesKHR capabilities);
+        std::uint32_t ChooseImageCount(const VkSurfaceCapabilitiesKHR &capabilities);
 
-        std::vector<VkPhysicalDevice> GetPhysicalDevices() const;
+        VkShaderModule CreateShaderModule(gsl::span<std::uint8_t> buffer) const;
 
         std::array<gsl::czstring, 1> required_device_extensions_ = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
 
@@ -89,6 +78,16 @@ namespace veng {
         VkQueue present_queue_ = VK_NULL_HANDLE;
 
         VkSurfaceKHR surface_ = VK_NULL_HANDLE;
+        VkSwapchainKHR swap_chain_ = VK_NULL_HANDLE;
+        VkSurfaceFormatKHR surface_format_;
+        VkPresentModeKHR present_mode_;
+        VkExtent2D extent_;
+        std::vector<VkImage> swap_chain_images_;
+        std::vector<VkImageView> swap_chain_image_views_;
+
+        VkPipelineLayout pipeline_layout_ = VK_NULL_HANDLE;
+        VkRenderPass render_pass_ = VK_NULL_HANDLE;
+
         gsl::not_null<GLFW_Window *> window_;
         bool validation_ = false;
     };
