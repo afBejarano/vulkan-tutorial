@@ -8,7 +8,7 @@
 namespace veng {
 
 bool streq(gsl::czstring a, gsl::czstring b);
-std::vector<std::uint8_t> readFile(std::filesystem::path file);
+std::vector<std::uint8_t> ReadFile(std::filesystem::path file);
 
 } // veng
 

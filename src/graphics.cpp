@@ -524,20 +524,20 @@ VkShaderModule Graphics::CreateShaderModule(gsl::span<std::uint8_t> buffer) cons
 }
 
 void Graphics::CreateGraphicsPipeline() {
-    std::vector<uint8_t> basic_vertex_data = readFile("./basic.vert.spv");
+    std::vector<uint8_t> basic_vertex_data = ReadFile("./basic.vert.spv");
     VkShaderModule vertex_shader_module = CreateShaderModule(basic_vertex_data);
     gsl::final_action _destroy_vertex_shader([this, vertex_shader_module]() {
         vkDestroyShaderModule(device_, vertex_shader_module, nullptr);
     });
 
-    std::vector<uint8_t> basic_fragment_data = readFile("./basic.frag.spv");
+    std::vector<uint8_t> basic_fragment_data = ReadFile("./basic.frag.spv");
     VkShaderModule fragment_shader_module = CreateShaderModule(basic_fragment_data);
     gsl::final_action _destroy_fragment_shader([this, fragment_shader_module]() {
         vkDestroyShaderModule(device_, fragment_shader_module, nullptr);
     });
 
     if (vertex_shader_module == VK_NULL_HANDLE || fragment_shader_module == VK_NULL_HANDLE) {
-        spdlog::error("Failed to create graphics pipeline!");
+        spdlog::error("Failed to create shader modules!");
         exit(EXIT_FAILURE);
     }
 
@@ -553,7 +553,7 @@ void Graphics::CreateGraphicsPipeline() {
     fragment_create_info.module = fragment_shader_module;
     fragment_create_info.pName = "main";
 
-    std::array<VkPipelineShaderStageCreateInfo, 2> stageInfos[] = {vertex_create_info, fragment_create_info};
+    std::array<VkPipelineShaderStageCreateInfo, 2> stage_infos = {vertex_create_info, fragment_create_info};
 
     std::array<VkDynamicState, 2> dynamic_states = {
         VK_DYNAMIC_STATE_VIEWPORT,
@@ -565,17 +565,9 @@ void Graphics::CreateGraphicsPipeline() {
     dynamic_state_create_info.dynamicStateCount = dynamic_states.size();
     dynamic_state_create_info.pDynamicStates = dynamic_states.data();
 
-    VkViewport viewport = {};
-    viewport.x = 0.0f;
-    viewport.y = 0.0f;
-    viewport.width = static_cast<std::float_t>(extent_.width);
-    viewport.height = static_cast<float>(extent_.height);
-    viewport.minDepth = 0.0f;
-    viewport.maxDepth = 1.0f;
+    VkViewport viewport = GetViewport();
 
-    VkRect2D scissor = {};
-    scissor.offset = {0, 0};
-    scissor.extent = extent_;
+    VkRect2D scissor = GetScissor();
 
     VkPipelineViewportStateCreateInfo viewport_state_create_info = {};
     viewport_state_create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_VIEWPORT_STATE_CREATE_INFO;
@@ -629,6 +621,48 @@ void Graphics::CreateGraphicsPipeline() {
         spdlog::error("failed to create pipeline layout!");
         exit(EXIT_FAILURE);
     }
+
+    VkGraphicsPipelineCreateInfo pipeline_create_info = {};
+    pipeline_create_info.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
+    pipeline_create_info.stageCount = stage_infos.size();
+    pipeline_create_info.pStages = stage_infos.data();
+    pipeline_create_info.pVertexInputState = &vertex_input_state_create_info;
+    pipeline_create_info.pInputAssemblyState = &input_assembly_create_info;
+    pipeline_create_info.pViewportState = &viewport_state_create_info;
+    pipeline_create_info.pRasterizationState = &rasterization_create_info;
+    pipeline_create_info.pMultisampleState = &multisample_create_info;
+    pipeline_create_info.pDepthStencilState = nullptr;
+    pipeline_create_info.pColorBlendState = &color_blend_create_info;
+    pipeline_create_info.pDynamicState = &dynamic_state_create_info;
+    pipeline_create_info.layout = pipeline_layout_;
+    pipeline_create_info.renderPass = render_pass_;
+    pipeline_create_info.subpass = 0;
+
+    if (vkCreateGraphicsPipelines(device_, VK_NULL_HANDLE, 1, &pipeline_create_info, nullptr, &graphics_pipeline_) !=
+        VK_SUCCESS) {
+        spdlog::error("failed to create graphics pipeline!");
+        exit(EXIT_FAILURE);
+    }
+}
+
+VkViewport Graphics::GetViewport() const {
+    VkViewport viewport = {};
+    viewport.x = 0.0f;
+    viewport.y = 0.0f;
+    viewport.width = static_cast<std::float_t>(extent_.width);
+    viewport.height = static_cast<float>(extent_.height);
+    viewport.minDepth = 0.0f;
+    viewport.maxDepth = 1.0f;
+
+    return viewport;
+}
+
+VkRect2D Graphics::GetScissor() const {
+    VkRect2D scissor = {};
+    scissor.offset = {0, 0};
+    scissor.extent = extent_;
+
+    return scissor;
 }
 
 void Graphics::CreateRenderPass() {
@@ -662,11 +696,97 @@ void Graphics::CreateRenderPass() {
         spdlog::error("failed to create render pass!");
         exit(EXIT_FAILURE);
     }
-
-
 }
 
 #pragma endregion
+
+#pragma region DRAWING
+
+void Graphics::CreateFramebuffers() {
+    swap_chain_framebuffers_.resize(swap_chain_image_views_.size());
+    for (uint32_t i = 0; i < swap_chain_image_views_.size(); i++) {
+        VkFramebufferCreateInfo framebuffer_create_info = {};
+        framebuffer_create_info.sType = VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO;
+        framebuffer_create_info.renderPass = render_pass_;
+        framebuffer_create_info.attachmentCount = 1;
+        framebuffer_create_info.pAttachments = &swap_chain_image_views_[i];
+        framebuffer_create_info.width = extent_.width;
+        framebuffer_create_info.height = extent_.height;
+        framebuffer_create_info.layers = 1;
+
+        if (vkCreateFramebuffer(device_, &framebuffer_create_info, nullptr, &swap_chain_framebuffers_[i]) !=
+            VK_SUCCESS) {
+            spdlog::error("failed to create framebuffer!");
+            exit(EXIT_FAILURE);
+        }
+    }
+}
+
+void Graphics::CreateCommandPool() {
+    QueueFamilyIndices queue_families = FindQueueFamilies(physical_device_);
+
+    VkCommandPoolCreateInfo command_pool_create_info = {};
+    command_pool_create_info.sType = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+    command_pool_create_info.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+    command_pool_create_info.queueFamilyIndex = queue_families.graphics_family.value();
+
+    if (vkCreateCommandPool(device_, &command_pool_create_info, nullptr, &command_pool_) != VK_SUCCESS) {
+        spdlog::error("failed to create command pool!");
+        exit(EXIT_FAILURE);
+    };
+}
+
+void Graphics::CreateCommandBuffer() {
+    VkCommandBufferAllocateInfo command_buffer_allocate_info = {};
+    command_buffer_allocate_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    command_buffer_allocate_info.commandPool = command_pool_;
+    command_buffer_allocate_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    command_buffer_allocate_info.commandBufferCount = 1;
+
+    if (vkAllocateCommandBuffers(device_, &command_buffer_allocate_info, &command_buffer_) != VK_SUCCESS) {
+        spdlog::error("failed to allocate command buffers!");
+        exit(EXIT_FAILURE);
+    }
+}
+
+void Graphics::BeginCommands(std::uint32_t current_image_index) {
+    VkCommandBufferBeginInfo begin_info = {};
+    begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+
+    if (vkBeginCommandBuffer(command_buffer_, &begin_info) != VK_SUCCESS) {
+        throw std::runtime_error("failed to begin command buffer");
+    }
+
+    VkRenderPassBeginInfo render_pass_info = {};
+    render_pass_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
+    render_pass_info.renderPass = render_pass_;
+    render_pass_info.framebuffer = swap_chain_framebuffers_[current_image_index];
+    render_pass_info.renderArea.offset = {0, 0};
+    render_pass_info.renderArea.extent = extent_;
+
+    VkClearValue clear_value = {{0.0f, 1.0f, 0.0f, 1.0f}};
+    render_pass_info.clearValueCount = 1;
+    render_pass_info.pClearValues = &clear_value;
+
+    vkCmdBeginRenderPass(command_buffer_, &render_pass_info, VK_SUBPASS_CONTENTS_INLINE);
+
+    vkCmdBindPipeline(command_buffer_, VK_PIPELINE_BIND_POINT_GRAPHICS, graphics_pipeline_);
+    const VkViewport viewport = GetViewport();
+    const VkRect2D scissor = GetScissor();
+
+    vkCmdSetViewport(command_buffer_, 0, 1, &viewport);
+    vkCmdSetScissor(command_buffer_, 0, 1, &scissor);
+}
+
+void Graphics::RenderTriangle() {
+    vkCmdDraw(command_buffer_, 3, 1, 0, 0);
+}
+
+void Graphics::EndCommands() {
+}
+
+#pragma endregion
+
 Graphics::Graphics(const gsl::not_null<GLFW_Window *> window): window_(window) {
 #if !defined(NDEBUG)
     validation_ = true;
@@ -676,6 +796,15 @@ Graphics::Graphics(const gsl::not_null<GLFW_Window *> window): window_(window) {
 
 Graphics::~Graphics() {
     if (device_ != nullptr) {
+        if (command_pool_ != VK_NULL_HANDLE)
+            vkDestroyCommandPool(device_, command_pool_, nullptr);
+
+        for (auto framebuffer: swap_chain_framebuffers_)
+            vkDestroyFramebuffer(device_, framebuffer, nullptr);
+
+        if (graphics_pipeline_ != VK_NULL_HANDLE)
+            vkDestroyPipeline(device_, graphics_pipeline_, nullptr);
+
         if (pipeline_layout_ != VK_NULL_HANDLE)
             vkDestroyPipelineLayout(device_, pipeline_layout_, nullptr);
 
@@ -687,14 +816,15 @@ Graphics::~Graphics() {
 
         if (swap_chain_ != VK_NULL_HANDLE)
             vkDestroySwapchainKHR(device_, swap_chain_, nullptr);
+
         vkDestroyDevice(device_, nullptr);
     }
 
-    if (instance_ != nullptr) {
-        if (surface_ != nullptr)
+    if (instance_ != VK_NULL_HANDLE) {
+        if (surface_ != VK_NULL_HANDLE)
             vkDestroySurfaceKHR(instance_, surface_, nullptr);
 
-        if (debug_messenger_ != nullptr)
+        if (debug_messenger_ != VK_NULL_HANDLE)
             vkDestroyDebugUtilsMessengerEXT(instance_, debug_messenger_, nullptr);
         vkDestroyInstance(instance_, nullptr);
     }
@@ -707,6 +837,9 @@ void Graphics::InitializeVulkan() {
     PickPhysicalDevice();
     CreateLogicalDeviceAndQueues();
     CreateSwapChain();
+    CreateRenderPass();
     CreateGraphicsPipeline();
+    CreateCommandPool();
+    CreateCommandBuffer();
 }
 } // veng

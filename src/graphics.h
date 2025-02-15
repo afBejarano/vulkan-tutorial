@@ -35,6 +35,8 @@ namespace veng {
         };
 
         void InitializeVulkan();
+
+        // Initialization
         void CreateInstance();
         void SetupDebugMessenger();
         void PickPhysicalDevice();
@@ -44,6 +46,15 @@ namespace veng {
         void CreateImageViews();
         void CreateRenderPass();
         void CreateGraphicsPipeline();
+        void CreateFramebuffers();
+        void CreateCommandPool();
+        void CreateCommandBuffer();
+
+        // Rendering
+
+        void BeginCommands(std::uint32_t current_image_index);
+        void RenderTriangle();
+        void EndCommands();
 
         std::vector<gsl::czstring> GetRequiredInstanceExtensions() const;
         static gsl::span<gsl::czstring> GetSuggestedInstanceExtensions();
@@ -67,6 +78,9 @@ namespace veng {
 
         VkShaderModule CreateShaderModule(gsl::span<std::uint8_t> buffer) const;
 
+        VkViewport GetViewport() const;
+        VkRect2D GetScissor() const;
+
         std::array<gsl::czstring, 1> required_device_extensions_ = {VK_KHR_SWAPCHAIN_EXTENSION_NAME};
 
         VkInstance instance_ = VK_NULL_HANDLE;
@@ -82,11 +96,17 @@ namespace veng {
         VkSurfaceFormatKHR surface_format_;
         VkPresentModeKHR present_mode_;
         VkExtent2D extent_;
+
         std::vector<VkImage> swap_chain_images_;
         std::vector<VkImageView> swap_chain_image_views_;
+        std::vector<VkFramebuffer> swap_chain_framebuffers_;
 
         VkPipelineLayout pipeline_layout_ = VK_NULL_HANDLE;
         VkRenderPass render_pass_ = VK_NULL_HANDLE;
+        VkPipeline graphics_pipeline_ = VK_NULL_HANDLE;
+
+        VkCommandPool command_pool_ = VK_NULL_HANDLE;
+        VkCommandBuffer command_buffer_ = VK_NULL_HANDLE;
 
         gsl::not_null<GLFW_Window *> window_;
         bool validation_ = false;
