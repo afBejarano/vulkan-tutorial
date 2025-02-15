@@ -14,6 +14,10 @@ namespace veng {
 
         ~Graphics();
 
+        bool BeginFrame();
+        void RenderTriangle();
+        void EndFrame();
+
     private:
         struct QueueFamilyIndices {
             std::optional<std::uint32_t> graphics_family = std::nullopt;
@@ -34,6 +38,7 @@ namespace veng {
             }
         };
 
+
         void InitializeVulkan();
 
         // Initialization
@@ -49,11 +54,14 @@ namespace veng {
         void CreateFramebuffers();
         void CreateCommandPool();
         void CreateCommandBuffer();
+        void CreateSignals();
+
+        void RecreateSwapchain();
+        void CleanupSwapchain();
 
         // Rendering
 
-        void BeginCommands(std::uint32_t current_image_index);
-        void RenderTriangle();
+        void BeginCommands();
         void EndCommands();
 
         std::vector<gsl::czstring> GetRequiredInstanceExtensions() const;
@@ -107,6 +115,12 @@ namespace veng {
 
         VkCommandPool command_pool_ = VK_NULL_HANDLE;
         VkCommandBuffer command_buffer_ = VK_NULL_HANDLE;
+
+        VkSemaphore image_available_semaphore_ = VK_NULL_HANDLE;
+        VkSemaphore render_finished_semaphore_ = VK_NULL_HANDLE;
+        VkFence still_renddering_fence_ = VK_NULL_HANDLE;
+
+        std::uint32_t current_image_index_ = 0;
 
         gsl::not_null<GLFW_Window *> window_;
         bool validation_ = false;

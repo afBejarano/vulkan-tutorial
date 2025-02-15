@@ -604,9 +604,16 @@ void Graphics::CreateGraphicsPipeline() {
     multisample_create_info.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
 
     VkPipelineColorBlendAttachmentState color_blend_attachment_state = {};
-    color_blend_attachment_state.blendEnable = VK_FALSE;
     color_blend_attachment_state.colorWriteMask =
             VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+
+    color_blend_attachment_state.blendEnable = VK_TRUE;
+    color_blend_attachment_state.srcColorBlendFactor = VK_BLEND_FACTOR_SRC_ALPHA;
+    color_blend_attachment_state.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+    color_blend_attachment_state.colorBlendOp = VK_BLEND_OP_ADD;
+    color_blend_attachment_state.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+    color_blend_attachment_state.dstAlphaBlendFactor = VK_BLEND_FACTOR_ZERO;
+    color_blend_attachment_state.alphaBlendOp = VK_BLEND_OP_ADD;
 
     VkPipelineColorBlendStateCreateInfo color_blend_create_info = {};
     color_blend_create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO;
@@ -749,7 +756,8 @@ void Graphics::CreateCommandBuffer() {
     }
 }
 
-void Graphics::BeginCommands(std::uint32_t current_image_index) {
+void Graphics::BeginCommands() {
+    vkResetCommandBuffer(command_buffer_, 0);
     VkCommandBufferBeginInfo begin_info = {};
     begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
 
@@ -760,11 +768,11 @@ void Graphics::BeginCommands(std::uint32_t current_image_index) {
     VkRenderPassBeginInfo render_pass_info = {};
     render_pass_info.sType = VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO;
     render_pass_info.renderPass = render_pass_;
-    render_pass_info.framebuffer = swap_chain_framebuffers_[current_image_index];
+    render_pass_info.framebuffer = swap_chain_framebuffers_[current_image_index_];
     render_pass_info.renderArea.offset = {0, 0};
     render_pass_info.renderArea.extent = extent_;
 
-    VkClearValue clear_value = {{0.0f, 1.0f, 0.0f, 1.0f}};
+    VkClearValue clear_value = {{0.0f, 0.0f, 0.0f, 1.0f}};
     render_pass_info.clearValueCount = 1;
     render_pass_info.pClearValues = &clear_value;
 
@@ -783,9 +791,121 @@ void Graphics::RenderTriangle() {
 }
 
 void Graphics::EndCommands() {
+    vkCmdEndRenderPass(command_buffer_);
+    if (vkEndCommandBuffer(command_buffer_) != VK_SUCCESS) {
+        throw std::runtime_error("failed to record command buffer!");
+    }
 }
 
+void Graphics::CreateSignals() {
+    VkSemaphoreCreateInfo semaphore_create_info = {};
+    semaphore_create_info.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO;
+
+    if (vkCreateSemaphore(device_, &semaphore_create_info, nullptr, &image_available_semaphore_) != VK_SUCCESS) {
+        std::exit(EXIT_FAILURE);
+    }
+
+    if (vkCreateSemaphore(device_, &semaphore_create_info, nullptr, &render_finished_semaphore_) != VK_SUCCESS) {
+        std::exit(EXIT_FAILURE);
+    }
+
+    VkFenceCreateInfo fence_create_info = {};
+    fence_create_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
+    fence_create_info.flags = VK_FENCE_CREATE_SIGNALED_BIT;
+
+    if (vkCreateFence(device_, &fence_create_info, nullptr, &still_renddering_fence_) != VK_SUCCESS) {
+        std::exit(EXIT_FAILURE);
+    }
+}
+
+bool Graphics::BeginFrame() {
+    vkWaitForFences(device_, 1, &still_renddering_fence_, VK_TRUE, UINT64_MAX);
+    vkResetFences(device_, 1, &still_renddering_fence_);
+
+    VkResult result = vkAcquireNextImageKHR(device_, swap_chain_, UINT64_MAX, image_available_semaphore_,
+                                            VK_NULL_HANDLE,
+                                            &current_image_index_);
+    if (result == VK_ERROR_OUT_OF_DATE_KHR) {
+        RecreateSwapchain();
+        return false;
+    }
+
+    if (result != VK_SUCCESS && result != VK_SUBOPTIMAL_KHR) {
+        throw std::runtime_error("failed to acquire swap chain image!");
+    }
+
+    BeginCommands();
+    return true;
+}
+
+void Graphics::EndFrame() {
+    EndCommands();
+
+    VkSubmitInfo submit_info = {};
+    submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+
+    VkPipelineStageFlags wait_stage_flags = VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT;
+    submit_info.waitSemaphoreCount = 1;
+    submit_info.pWaitSemaphores = &image_available_semaphore_;
+    submit_info.pWaitDstStageMask = &wait_stage_flags;
+
+    submit_info.commandBufferCount = 1;
+    submit_info.pCommandBuffers = &command_buffer_;
+
+    submit_info.signalSemaphoreCount = 1;
+    submit_info.pSignalSemaphores = &render_finished_semaphore_;
+
+    if (vkQueueSubmit(graphics_queue_, 1, &submit_info, still_renddering_fence_) != VK_SUCCESS) {
+        throw std::runtime_error("failed to submit framebuffer command buffer submission");
+    }
+
+    VkPresentInfoKHR present_info = {};
+    present_info.sType = VK_STRUCTURE_TYPE_PRESENT_INFO_KHR;
+    present_info.waitSemaphoreCount = 1;
+    present_info.pWaitSemaphores = &render_finished_semaphore_;
+    present_info.swapchainCount = 1;
+    present_info.pSwapchains = &swap_chain_;
+    present_info.pImageIndices = &current_image_index_;
+
+    VkResult result = vkQueuePresentKHR(present_queue_, &present_info);
+    if (result == VK_ERROR_OUT_OF_DATE_KHR || result == VK_SUBOPTIMAL_KHR) {
+        RecreateSwapchain();
+    } else if (result != VK_SUCCESS) {
+        throw std::runtime_error("failed to present!");
+    }
+}
+
+
 #pragma endregion
+
+void Graphics::RecreateSwapchain() {
+    glm::ivec2 window_size = window_->GetWindowSize();
+    while (window_size.x == 0 || window_size.y == 0) {
+        window_size = window_->GetFrameBufferSize();
+        glfwWaitEvents();
+    }
+
+    vkDeviceWaitIdle(device_);
+    CleanupSwapchain();
+
+    CreateSwapChain();
+    CreateImageViews();
+    CreateFramebuffers();
+}
+
+void Graphics::CleanupSwapchain() {
+    if (device_ == VK_NULL_HANDLE)
+        return;
+
+    for (const auto framebuffer: swap_chain_framebuffers_)
+        vkDestroyFramebuffer(device_, framebuffer, nullptr);
+
+    for (auto image_view: swap_chain_image_views_)
+        vkDestroyImageView(device_, image_view, nullptr);
+
+    if (swap_chain_ != VK_NULL_HANDLE)
+        vkDestroySwapchainKHR(device_, swap_chain_, nullptr);
+}
 
 Graphics::Graphics(const gsl::not_null<GLFW_Window *> window): window_(window) {
 #if !defined(NDEBUG)
@@ -796,11 +916,21 @@ Graphics::Graphics(const gsl::not_null<GLFW_Window *> window): window_(window) {
 
 Graphics::~Graphics() {
     if (device_ != nullptr) {
+        vkDeviceWaitIdle(device_);
+
+        CleanupSwapchain();
+
+        if (image_available_semaphore_ != VK_NULL_HANDLE)
+            vkDestroySemaphore(device_, image_available_semaphore_, nullptr);
+
+        if (render_finished_semaphore_ != VK_NULL_HANDLE)
+            vkDestroySemaphore(device_, render_finished_semaphore_, nullptr);
+
+        if (still_renddering_fence_ != VK_NULL_HANDLE)
+            vkDestroyFence(device_, still_renddering_fence_, nullptr);
+
         if (command_pool_ != VK_NULL_HANDLE)
             vkDestroyCommandPool(device_, command_pool_, nullptr);
-
-        for (auto framebuffer: swap_chain_framebuffers_)
-            vkDestroyFramebuffer(device_, framebuffer, nullptr);
 
         if (graphics_pipeline_ != VK_NULL_HANDLE)
             vkDestroyPipeline(device_, graphics_pipeline_, nullptr);
@@ -811,12 +941,6 @@ Graphics::~Graphics() {
         if (render_pass_ != VK_NULL_HANDLE)
             vkDestroyRenderPass(device_, render_pass_, nullptr);
 
-        for (auto image_view: swap_chain_image_views_)
-            vkDestroyImageView(device_, image_view, nullptr);
-
-        if (swap_chain_ != VK_NULL_HANDLE)
-            vkDestroySwapchainKHR(device_, swap_chain_, nullptr);
-
         vkDestroyDevice(device_, nullptr);
     }
 
@@ -826,6 +950,7 @@ Graphics::~Graphics() {
 
         if (debug_messenger_ != VK_NULL_HANDLE)
             vkDestroyDebugUtilsMessengerEXT(instance_, debug_messenger_, nullptr);
+
         vkDestroyInstance(instance_, nullptr);
     }
 }
@@ -838,8 +963,11 @@ void Graphics::InitializeVulkan() {
     CreateLogicalDeviceAndQueues();
     CreateSwapChain();
     CreateRenderPass();
+    CreateImageViews();
+    CreateFramebuffers();
     CreateGraphicsPipeline();
     CreateCommandPool();
     CreateCommandBuffer();
+    CreateSignals();
 }
 } // veng
