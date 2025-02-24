@@ -60,7 +60,10 @@ add_executable(VulkanEngine src/main.cpp
         src/graphics.cpp
         src/graphics.h
         src/utilities.cpp
-        src/utilities.h)
+        src/utilities.h
+        src/vertex.h
+        src/buffer_handle.h
+        src/uniform_transformations.h)
 
 target_link_libraries(VulkanEngine PRIVATE Vulkan::Vulkan)
 target_link_libraries(VulkanEngine PRIVATE glm)

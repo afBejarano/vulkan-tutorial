@@ -1,22 +1,16 @@
 #version 450
 #include "common.glsl"
 
-vec2 hardcoded_positions[3] = vec2[](
-        vec2(0.0, -0.5),
-        vec2(0.5, 0.5),
-        vec2(-0.5, 0.5)
-);
-
-vec4 hardcoded_colors[3] = vec4[](
-        vec4(1.0, 0.0, 0.0, 1.0),
-        vec4(0.0, 1.0, 0.0, 1.0),
-        vec4(0.0, 0.0, 1.0, 1.0)
-);
+layout (location = 0) in vec3 input_position;
+layout (location = 1) in vec3 input_color;
 
 layout (location = 0) out vec4 color;
 
+layout (push_constant) uniform Model {
+    mat4 transformation;
+} model;
+
 void main() {
-    vec2 current_position = vec2(hardcoded_positions[gl_VertexIndex]);
-    color = vec4(hardcoded_colors[gl_VertexIndex]);
-    gl_Position = vec4(current_position, 0.0, 1.0);
+    gl_Position = camera.proj * camera.view * model.transformation * vec4(input_position, 1.0);
+    color = vec4(input_color, 1.0);
 }

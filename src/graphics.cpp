@@ -10,7 +10,9 @@
 #include <set>
 #include <spdlog/spdlog.h>
 
+#include "uniform_transformations.h"
 #include "utilities.h"
+#include "vertex.h"
 
 #pragma region VK_FUNCITON_EXT_IMPL
 
@@ -576,12 +578,15 @@ void Graphics::CreateGraphicsPipeline() {
     viewport_state_create_info.scissorCount = 1;
     viewport_state_create_info.pScissors = &scissor;
 
+    auto vertex_binding_description = Vertex::GetBindingDescription();
+    auto vertex_attribute_descriptions = Vertex::GetAttributeDescriptions();
+
     VkPipelineVertexInputStateCreateInfo vertex_input_state_create_info = {};
     vertex_input_state_create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
-    vertex_input_state_create_info.vertexBindingDescriptionCount = 0;
-    vertex_input_state_create_info.pVertexBindingDescriptions = nullptr;
-    vertex_input_state_create_info.vertexAttributeDescriptionCount = 0;
-    vertex_input_state_create_info.pVertexAttributeDescriptions = nullptr;
+    vertex_input_state_create_info.vertexBindingDescriptionCount = 1;
+    vertex_input_state_create_info.pVertexBindingDescriptions = &vertex_binding_description;
+    vertex_input_state_create_info.vertexAttributeDescriptionCount = vertex_attribute_descriptions.size();
+    vertex_input_state_create_info.pVertexAttributeDescriptions = vertex_attribute_descriptions.data();
 
     VkPipelineInputAssemblyStateCreateInfo input_assembly_create_info = {};
     input_assembly_create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_INPUT_ASSEMBLY_STATE_CREATE_INFO;
@@ -623,6 +628,17 @@ void Graphics::CreateGraphicsPipeline() {
 
     VkPipelineLayoutCreateInfo pipeline_layout_create_info = {};
     pipeline_layout_create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO;
+
+    VkPushConstantRange model_matrix_range = {};
+    model_matrix_range.stageFlags = VK_SHADER_STAGE_VERTEX_BIT;
+    model_matrix_range.offset = 0;
+    model_matrix_range.size = sizeof(glm::mat4);
+
+    pipeline_layout_create_info.pushConstantRangeCount = 1;
+    pipeline_layout_create_info.pPushConstantRanges = &model_matrix_range;
+
+    pipeline_layout_create_info.setLayoutCount = 1;
+    pipeline_layout_create_info.pSetLayouts = &descriptor_set_layout_;
 
     if (vkCreatePipelineLayout(device_, &pipeline_layout_create_info, nullptr, &pipeline_layout_) != VK_SUCCESS) {
         spdlog::error("failed to create pipeline layout!");
@@ -786,10 +802,6 @@ void Graphics::BeginCommands() {
     vkCmdSetScissor(command_buffer_, 0, 1, &scissor);
 }
 
-void Graphics::RenderTriangle() {
-    vkCmdDraw(command_buffer_, 3, 1, 0, 0);
-}
-
 void Graphics::EndCommands() {
     vkCmdEndRenderPass(command_buffer_);
     if (vkEndCommandBuffer(command_buffer_) != VK_SUCCESS) {
@@ -813,14 +825,33 @@ void Graphics::CreateSignals() {
     fence_create_info.sType = VK_STRUCTURE_TYPE_FENCE_CREATE_INFO;
     fence_create_info.flags = VK_FENCE_CREATE_SIGNALED_BIT;
 
-    if (vkCreateFence(device_, &fence_create_info, nullptr, &still_renddering_fence_) != VK_SUCCESS) {
+    if (vkCreateFence(device_, &fence_create_info, nullptr, &still_rendering_fence_) != VK_SUCCESS) {
+        std::exit(EXIT_FAILURE);
+    }
+}
+
+void Graphics::CreateDescriptorSetLayout() {
+    VkDescriptorSetLayoutBinding uniform_layout_binding = {};
+    uniform_layout_binding.binding = 0;
+    uniform_layout_binding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    uniform_layout_binding.descriptorCount = 1;
+    uniform_layout_binding.stageFlags = VK_SHADER_STAGE_ALL_GRAPHICS;
+
+    VkDescriptorSetLayoutCreateInfo descriptor_set_layout_info = {};
+    descriptor_set_layout_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    descriptor_set_layout_info.bindingCount = 1;
+    descriptor_set_layout_info.pBindings = &uniform_layout_binding;
+
+    if (vkCreateDescriptorSetLayout(device_, &descriptor_set_layout_info, nullptr, &descriptor_set_layout_) !=
+        VK_SUCCESS) {
+        spdlog::error("Failed to create descriptor set layout!");
         std::exit(EXIT_FAILURE);
     }
 }
 
 bool Graphics::BeginFrame() {
-    vkWaitForFences(device_, 1, &still_renddering_fence_, VK_TRUE, UINT64_MAX);
-    vkResetFences(device_, 1, &still_renddering_fence_);
+    vkWaitForFences(device_, 1, &still_rendering_fence_, VK_TRUE, UINT64_MAX);
+    vkResetFences(device_, 1, &still_rendering_fence_);
 
     VkResult result = vkAcquireNextImageKHR(device_, swap_chain_, UINT64_MAX, image_available_semaphore_,
                                             VK_NULL_HANDLE,
@@ -835,6 +866,8 @@ bool Graphics::BeginFrame() {
     }
 
     BeginCommands();
+    SetModelMatrix(glm::mat4(1.0f));
+
     return true;
 }
 
@@ -855,7 +888,7 @@ void Graphics::EndFrame() {
     submit_info.signalSemaphoreCount = 1;
     submit_info.pSignalSemaphores = &render_finished_semaphore_;
 
-    if (vkQueueSubmit(graphics_queue_, 1, &submit_info, still_renddering_fence_) != VK_SUCCESS) {
+    if (vkQueueSubmit(graphics_queue_, 1, &submit_info, still_rendering_fence_) != VK_SUCCESS) {
         throw std::runtime_error("failed to submit framebuffer command buffer submission");
     }
 
@@ -874,9 +907,6 @@ void Graphics::EndFrame() {
         throw std::runtime_error("failed to present!");
     }
 }
-
-
-#pragma endregion
 
 void Graphics::RecreateSwapchain() {
     glm::ivec2 window_size = window_->GetWindowSize();
@@ -907,6 +937,232 @@ void Graphics::CleanupSwapchain() {
         vkDestroySwapchainKHR(device_, swap_chain_, nullptr);
 }
 
+
+#pragma endregion
+
+#pragma region BUFFERS
+
+std::uint32_t Graphics::FindMemoryType(const std::uint32_t memory_type_bits, const VkMemoryPropertyFlags properties) {
+    VkPhysicalDeviceMemoryProperties memory_properties;
+    vkGetPhysicalDeviceMemoryProperties(physical_device_, &memory_properties);
+    const gsl::span<VkMemoryType> memory_types(memory_properties.memoryTypes, memory_properties.memoryTypeCount);
+
+    for (uint32_t i = 0; i < memory_types.size(); i++)
+        if (memory_type_bits & (1 << i) && memory_types[i].propertyFlags & properties)
+            return i;
+
+    throw std::runtime_error("failed to find suitable memory type!");
+}
+
+BufferHandle Graphics::CreateBuffer(const VkDeviceSize size, VkBufferUsageFlags usage,
+                                    VkMemoryPropertyFlags properties) {
+    BufferHandle buffer = {};
+
+    VkBufferCreateInfo buffer_info = {};
+    buffer_info.sType = VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO;
+    buffer_info.size = size;
+    buffer_info.usage = usage;
+    buffer_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
+
+    if (vkCreateBuffer(device_, &buffer_info, VK_NULL_HANDLE, &buffer.buffer) != VK_SUCCESS)
+        throw std::runtime_error("failed to create vertex buffer!");
+
+    VkMemoryRequirements memory_requirements;
+    vkGetBufferMemoryRequirements(device_, buffer.buffer, &memory_requirements);
+
+    const std::uint32_t memory_type_index = FindMemoryType(memory_requirements.memoryTypeBits, properties);
+
+    VkMemoryAllocateInfo memory_allocate_info = {};
+    memory_allocate_info.sType = VK_STRUCTURE_TYPE_MEMORY_ALLOCATE_INFO;
+    memory_allocate_info.allocationSize = memory_requirements.size;
+    memory_allocate_info.memoryTypeIndex = memory_type_index;
+
+    if (vkAllocateMemory(device_, &memory_allocate_info, VK_NULL_HANDLE, &buffer.memory) != VK_SUCCESS)
+        throw std::runtime_error("failed to allocate vertex buffer memory!");
+
+    vkBindBufferMemory(device_, buffer.buffer, buffer.memory, 0);
+
+    return buffer;
+}
+
+BufferHandle Graphics::CreateVertexBuffer(const gsl::span<Vertex> vertices) {
+    const VkDeviceSize size = vertices.size() * sizeof(Vertex);
+    BufferHandle staging_handle = CreateBuffer(
+        size,
+        VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+        VK_MEMORY_PROPERTY_HOST_COHERENT_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT
+    );
+
+    void *mapped_data;
+    vkMapMemory(device_, staging_handle.memory, 0, size, 0, &mapped_data);
+    std::memcpy(mapped_data, vertices.data(), size);
+    vkUnmapMemory(device_, staging_handle.memory);
+
+    BufferHandle gpu_handle = CreateBuffer(size, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+                                           VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+
+    VkCommandBuffer transient_commands = BeginTransientCommandBuffer();
+
+    VkBufferCopy copy_info = {0, 0, size};
+    vkCmdCopyBuffer(transient_commands, staging_handle.buffer, gpu_handle.buffer, 1, &copy_info);
+
+    EndTransientCommandBuffer(transient_commands);
+
+    DestroyBuffer(staging_handle);
+
+    return gpu_handle;
+}
+
+BufferHandle Graphics::CreateIndexBuffer(gsl::span<std::uint32_t> indices) {
+    const VkDeviceSize size = indices.size() * sizeof(std::uint32_t);
+    BufferHandle staging_handle = CreateBuffer(size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                                               VK_MEMORY_PROPERTY_HOST_COHERENT_BIT |
+                                               VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
+
+    void *mapped_data;
+    vkMapMemory(device_, staging_handle.memory, 0, size, 0, &mapped_data);
+    std::memcpy(mapped_data, indices.data(), size);
+    vkUnmapMemory(device_, staging_handle.memory);
+
+    BufferHandle gpu_handle = CreateBuffer(size, VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+                                           VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+
+    VkCommandBuffer transient_commands = BeginTransientCommandBuffer();
+
+    VkBufferCopy copy_info = {0, 0, size};
+    vkCmdCopyBuffer(transient_commands, staging_handle.buffer, gpu_handle.buffer, 1, &copy_info);
+
+    EndTransientCommandBuffer(transient_commands);
+
+    DestroyBuffer(staging_handle);
+
+    return gpu_handle;
+}
+
+void Graphics::DestroyBuffer(const BufferHandle handle) {
+    vkDeviceWaitIdle(device_);
+    vkDestroyBuffer(device_, handle.buffer, VK_NULL_HANDLE);
+    vkFreeMemory(device_, handle.memory, VK_NULL_HANDLE);
+}
+
+void Graphics::RenderBuffer(const BufferHandle buffer_handle, const std::uint32_t vertex_count) {
+    VkDeviceSize offset = 0;
+    vkCmdBindDescriptorSets(command_buffer_, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_layout_, 0, 1, &descriptor_set_,
+                            0, VK_NULL_HANDLE);
+    vkCmdBindVertexBuffers(command_buffer_, 0, 1, &buffer_handle.buffer, &offset);
+    vkCmdDraw(command_buffer_, vertex_count, 1, 0, 0);
+    SetModelMatrix(glm::mat4(1.0f));
+}
+
+void Graphics::RenderIndexedBuffer(BufferHandle vertex_buffer, BufferHandle index_buffer, std::uint32_t index_count) {
+    VkDeviceSize offset = 0;
+    vkCmdBindDescriptorSets(command_buffer_, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline_layout_, 0, 1, &descriptor_set_,
+                            0, VK_NULL_HANDLE);
+    vkCmdBindVertexBuffers(command_buffer_, 0, 1, &vertex_buffer.buffer, &offset);
+    vkCmdBindIndexBuffer(command_buffer_, index_buffer.buffer, 0, VK_INDEX_TYPE_UINT32);
+    vkCmdDrawIndexed(command_buffer_, index_count, 1, 0, 0, 0);
+    SetModelMatrix(glm::mat4(1.0f));
+}
+
+void Graphics::SetModelMatrix(glm::mat4 model) {
+    vkCmdPushConstants(command_buffer_, pipeline_layout_, VK_SHADER_STAGE_VERTEX_BIT, 0, sizeof(model), &model);
+}
+
+void Graphics::SetViewProjection(glm::mat4 view, glm::mat4 proj) {
+    UniformTransformations uniforms{view, proj};
+    memcpy(uniform_buffer_location_, &uniforms, sizeof(UniformTransformations));
+}
+
+VkCommandBuffer Graphics::BeginTransientCommandBuffer() {
+    VkCommandBufferAllocateInfo allocate_info = {};
+    allocate_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+    allocate_info.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+    allocate_info.commandPool = command_pool_;
+    allocate_info.commandBufferCount = 1;
+
+    VkCommandBuffer command_buffer;
+
+    vkAllocateCommandBuffers(device_, &allocate_info, &command_buffer);
+
+    VkCommandBufferBeginInfo begin_info = {};
+    begin_info.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+    begin_info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    vkBeginCommandBuffer(command_buffer, &begin_info);
+
+    return command_buffer;
+}
+
+void Graphics::EndTransientCommandBuffer(VkCommandBuffer command_buffer) {
+    vkEndCommandBuffer(command_buffer);
+
+    VkSubmitInfo submit_info = {};
+    submit_info.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+    submit_info.commandBufferCount = 1;
+    submit_info.pCommandBuffers = &command_buffer;
+
+    vkQueueSubmit(graphics_queue_, 1, &submit_info, VK_NULL_HANDLE);
+    vkQueueWaitIdle(graphics_queue_);
+    vkFreeCommandBuffers(device_, command_pool_, 1, &command_buffer);
+}
+
+void Graphics::CreateUniformBuffers() {
+    VkDeviceSize buffer_size = sizeof(UniformTransformations);
+    uniform_buffer_handle_ = CreateBuffer(buffer_size, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+                                          VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT | VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+
+    vkMapMemory(device_, uniform_buffer_handle_.memory, 0, buffer_size, 0, &uniform_buffer_location_);
+}
+
+void Graphics::CreateDescriptorPool() {
+    VkDescriptorPoolSize descriptor_pool_size = {};
+    descriptor_pool_size.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    descriptor_pool_size.descriptorCount = 1;
+
+    VkDescriptorPoolCreateInfo pool_info = {};
+    pool_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
+    pool_info.poolSizeCount = 1;
+    pool_info.pPoolSizes = &descriptor_pool_size;
+    pool_info.maxSets = 1;
+
+    if (vkCreateDescriptorPool(device_, &pool_info, nullptr, &descriptor_pool_) != VK_SUCCESS) {
+        spdlog::error("Failed to create descriptor pool!");
+        std::exit(EXIT_FAILURE);
+    }
+}
+
+void Graphics::CreateDescriptorSet() {
+    VkDescriptorSetAllocateInfo descriptor_set_allocate_info = {};
+    descriptor_set_allocate_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+    descriptor_set_allocate_info.descriptorPool = descriptor_pool_;
+    descriptor_set_allocate_info.descriptorSetCount = 1;
+    descriptor_set_allocate_info.pSetLayouts = &descriptor_set_layout_;
+
+    if (vkAllocateDescriptorSets(device_, &descriptor_set_allocate_info, &descriptor_set_) != VK_SUCCESS) {
+        spdlog::error("Failed to allocate descriptor sets!");
+        std::exit(EXIT_FAILURE);
+    }
+
+    VkDescriptorBufferInfo descriptor_buffer_info = {};
+    descriptor_buffer_info.buffer = uniform_buffer_handle_.buffer;
+    descriptor_buffer_info.offset = 0;
+    descriptor_buffer_info.range = sizeof(UniformTransformations);
+
+    VkWriteDescriptorSet descriptor_write = {};
+    descriptor_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    descriptor_write.dstSet = descriptor_set_;
+    descriptor_write.dstBinding = 0;
+    descriptor_write.dstArrayElement = 0;
+    descriptor_write.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    descriptor_write.descriptorCount = 1;
+    descriptor_write.pBufferInfo = &descriptor_buffer_info;
+
+    vkUpdateDescriptorSets(device_, 1, &descriptor_write, 0, nullptr);
+}
+
+#pragma endregion
+
+#pragma region CLASS
+
 Graphics::Graphics(const gsl::not_null<GLFW_Window *> window): window_(window) {
 #if !defined(NDEBUG)
     validation_ = true;
@@ -915,43 +1171,51 @@ Graphics::Graphics(const gsl::not_null<GLFW_Window *> window): window_(window) {
 }
 
 Graphics::~Graphics() {
-    if (device_ != nullptr) {
+    if (device_ != VK_NULL_HANDLE) {
         vkDeviceWaitIdle(device_);
 
         CleanupSwapchain();
 
+        if (descriptor_pool_ != VK_NULL_HANDLE)
+            vkDestroyDescriptorPool(device_, descriptor_pool_, VK_NULL_HANDLE);
+
+        DestroyBuffer(uniform_buffer_handle_);
+
+        if (descriptor_set_layout_ != VK_NULL_HANDLE)
+            vkDestroyDescriptorSetLayout(device_, descriptor_set_layout_, VK_NULL_HANDLE);
+
         if (image_available_semaphore_ != VK_NULL_HANDLE)
-            vkDestroySemaphore(device_, image_available_semaphore_, nullptr);
+            vkDestroySemaphore(device_, image_available_semaphore_, VK_NULL_HANDLE);
 
         if (render_finished_semaphore_ != VK_NULL_HANDLE)
-            vkDestroySemaphore(device_, render_finished_semaphore_, nullptr);
+            vkDestroySemaphore(device_, render_finished_semaphore_, VK_NULL_HANDLE);
 
-        if (still_renddering_fence_ != VK_NULL_HANDLE)
-            vkDestroyFence(device_, still_renddering_fence_, nullptr);
+        if (still_rendering_fence_ != VK_NULL_HANDLE)
+            vkDestroyFence(device_, still_rendering_fence_, VK_NULL_HANDLE);
 
         if (command_pool_ != VK_NULL_HANDLE)
-            vkDestroyCommandPool(device_, command_pool_, nullptr);
+            vkDestroyCommandPool(device_, command_pool_, VK_NULL_HANDLE);
 
         if (graphics_pipeline_ != VK_NULL_HANDLE)
-            vkDestroyPipeline(device_, graphics_pipeline_, nullptr);
+            vkDestroyPipeline(device_, graphics_pipeline_, VK_NULL_HANDLE);
 
         if (pipeline_layout_ != VK_NULL_HANDLE)
-            vkDestroyPipelineLayout(device_, pipeline_layout_, nullptr);
+            vkDestroyPipelineLayout(device_, pipeline_layout_, VK_NULL_HANDLE);
 
         if (render_pass_ != VK_NULL_HANDLE)
-            vkDestroyRenderPass(device_, render_pass_, nullptr);
+            vkDestroyRenderPass(device_, render_pass_, VK_NULL_HANDLE);
 
-        vkDestroyDevice(device_, nullptr);
+        vkDestroyDevice(device_, VK_NULL_HANDLE);
     }
 
     if (instance_ != VK_NULL_HANDLE) {
         if (surface_ != VK_NULL_HANDLE)
-            vkDestroySurfaceKHR(instance_, surface_, nullptr);
+            vkDestroySurfaceKHR(instance_, surface_, VK_NULL_HANDLE);
 
         if (debug_messenger_ != VK_NULL_HANDLE)
-            vkDestroyDebugUtilsMessengerEXT(instance_, debug_messenger_, nullptr);
+            vkDestroyDebugUtilsMessengerEXT(instance_, debug_messenger_, VK_NULL_HANDLE);
 
-        vkDestroyInstance(instance_, nullptr);
+        vkDestroyInstance(instance_, VK_NULL_HANDLE);
     }
 }
 
@@ -965,9 +1229,15 @@ void Graphics::InitializeVulkan() {
     CreateRenderPass();
     CreateImageViews();
     CreateFramebuffers();
+    CreateDescriptorSetLayout();
     CreateGraphicsPipeline();
     CreateCommandPool();
     CreateCommandBuffer();
     CreateSignals();
+    CreateUniformBuffers();
+    CreateDescriptorPool();
+    CreateDescriptorSet();
 }
+
+#pragma endregion
 } // veng
