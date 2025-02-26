@@ -1,10 +1,12 @@
 #version 450
 #include "common.glsl"
 
-layout (location = 0) in vec4 vertex_color;
+layout (location = 0) in vec2 vertex_uv;
 
 layout (location = 0) out vec4 out_color;
 
+layout(set = 1, binding = 0) uniform sampler2D texture_sampler;
+
 void main() {
-    out_color = vertex_color;
+    out_color = vec4(vertex_uv, 0.0, 1.0);
 }

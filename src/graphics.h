@@ -10,6 +10,7 @@
 
 #include "buffer_handle.h"
 #include "vertex.h"
+#include "texture_handle.h"
 
 namespace veng {
 class Graphics final {
@@ -21,6 +22,7 @@ public:
     bool BeginFrame();
     void SetModelMatrix(glm::mat4 model);
     void SetViewProjection(glm::mat4 view, glm::mat4 proj);
+    void SetTexture(TextureHandle handle);
     void RenderBuffer(BufferHandle buffer_handle, std::uint32_t vertex_count);
     void RenderIndexedBuffer(BufferHandle vertex_buffer, BufferHandle index_buffer, std::uint32_t index_count);
     void EndFrame();
@@ -28,6 +30,8 @@ public:
     BufferHandle CreateVertexBuffer(gsl::span<Vertex> vertices);
     BufferHandle CreateIndexBuffer(gsl::span<std::uint32_t> indices);
     void DestroyBuffer(BufferHandle handle);
+    TextureHandle CreateTexture(gsl::czstring path);
+    void DestroyTexture(TextureHandle handle);
 
 private:
     struct QueueFamilyIndices {
@@ -66,12 +70,13 @@ private:
     void CreateCommandPool();
     void CreateCommandBuffer();
     void CreateSignals();
-    void CreateDescriptorSetLayout();
-    void CreateDescriptorPool();
-    void CreateDescriptorSet();
+    void CreateDescriptorSetLayouts();
+    void CreateDescriptorPools();
+    void CreateDescriptorSets();
 
     void RecreateSwapchain();
     void CleanupSwapchain();
+    void CreateTextureSampler();
 
     // Rendering
 
@@ -107,6 +112,8 @@ private:
     void EndTransientCommandBuffer(VkCommandBuffer command_buffer);
     void CreateUniformBuffers();
 
+    TextureHandle CreateImage(glm::ivec2 extent, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties);
+
     VkViewport GetViewport() const;
     VkRect2D GetScissor() const;
 
@@ -133,7 +140,6 @@ private:
     VkPipelineLayout pipeline_layout_ = VK_NULL_HANDLE;
     VkRenderPass render_pass_ = VK_NULL_HANDLE;
     VkPipeline graphics_pipeline_ = VK_NULL_HANDLE;
-    VkDescriptorSetLayout descriptor_set_layout_ = VK_NULL_HANDLE;
 
     VkCommandPool command_pool_ = VK_NULL_HANDLE;
     VkCommandBuffer command_buffer_ = VK_NULL_HANDLE;
@@ -144,10 +150,15 @@ private:
 
     std::uint32_t current_image_index_ = 0;
 
-    VkDescriptorPool descriptor_pool_ = VK_NULL_HANDLE;
-    VkDescriptorSet descriptor_set_ = VK_NULL_HANDLE;
+    VkDescriptorSetLayout uniform_set_layout_ = VK_NULL_HANDLE;
+    VkDescriptorPool uniform_pool_ = VK_NULL_HANDLE;
+    VkDescriptorSet uniform_set_ = VK_NULL_HANDLE;
     BufferHandle uniform_buffer_handle_;
-    void* uniform_buffer_location_;
+    void *uniform_buffer_location_;
+
+    VkDescriptorSetLayout texture_set_layout_ = VK_NULL_HANDLE;
+    VkDescriptorPool texture_pool_ = VK_NULL_HANDLE;
+    VkSampler texture_sampler_ = VK_NULL_HANDLE;
 
     gsl::not_null<GLFW_Window *> window_;
     bool validation_ = false;

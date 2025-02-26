@@ -17,15 +17,16 @@ std::int32_t main(std::int32_t argc, gsl::zstring *argv) {
     veng::Graphics graphics{gsl::make_not_null(&window)};
 
     std::array vertices = {
-        veng::Vertex{glm::vec3{0.0f, -0.5f, 0.0f}, glm::vec3{1.0f, 0.0f, 0.0f}},
-        veng::Vertex{glm::vec3{0.5f, 0.5f, 0.0f}, glm::vec3{0.0f, 1.0f, 0.0f}},
-        veng::Vertex{glm::vec3{-0.5f, 0.5f, 0.0f}, glm::vec3{0.0f, 0.0f, 1.0f}},
+        veng::Vertex({-0.5f, -0.5f, 0.0f}, {0.0f, 1.0f}),
+        veng::Vertex({0.5f, -0.5f, 0.0f}, {1.0f, 1.0f}),
+        veng::Vertex({-0.5f, 0.5f, 0.0f}, {0.0f, 0.0f}),
+        veng::Vertex({0.5f, 0.5f, 0.0f}, {1.0f, 0.0f}),
     };
 
     const veng::BufferHandle buffer = graphics.CreateVertexBuffer(vertices);
 
-    std::array<std::uint32_t, 3> indices = {
-        0, 1, 2
+    std::array<std::uint32_t, 6> indices = {
+        0, 3, 2, 0, 1, 3
     };
 
     veng::BufferHandle index_buffer = graphics.CreateIndexBuffer(indices);
@@ -35,14 +36,18 @@ std::int32_t main(std::int32_t argc, gsl::zstring *argv) {
     glm::mat4 proj = glm::perspective(glm::radians(60.0f), 800.0f / 600.0f, 0.1f, 100.0f);
     graphics.SetViewProjection(view, proj);
 
+    veng::TextureHandle handle = graphics.CreateTexture("assets/textures/paving-stones.jpg");
+
     while (!window.ShouldClose()) {
         glfwPollEvents();
         if (graphics.BeginFrame()) {
+            graphics.SetTexture(handle);
             graphics.RenderIndexedBuffer(buffer, index_buffer, indices.size());
             graphics.EndFrame();
         }
     }
 
+    graphics.DestroyTexture(handle);
     graphics.DestroyBuffer(buffer);
     graphics.DestroyBuffer(index_buffer);
 

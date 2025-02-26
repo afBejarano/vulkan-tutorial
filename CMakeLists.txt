@@ -63,7 +63,10 @@ add_executable(VulkanEngine src/main.cpp
         src/utilities.h
         src/vertex.h
         src/buffer_handle.h
-        src/uniform_transformations.h)
+        src/uniform_transformations.h
+        src/texture_handle.h
+        src/stb_image.h
+        src/stb_image.cpp)
 
 target_link_libraries(VulkanEngine PRIVATE Vulkan::Vulkan)
 target_link_libraries(VulkanEngine PRIVATE glm)
@@ -85,3 +88,5 @@ file(GLOB_RECURSE ShaderSources CONFIGURE_DEPENDS
 
 add_shaders(VulkanEngineShaders ${ShaderSources})
 add_dependencies(VulkanEngine VulkanEngineShaders)
+
+file(COPY "${CMAKE_CURRENT_SOURCE_DIR}/assets/textures" DESTINATION "${CMAKE_CURRENT_BINARY_DIR}/assets")
