@@ -63,6 +63,7 @@ private:
     void CreateLogicalDeviceAndQueues();
     void CreateSurface();
     void CreateSwapChain();
+    VkImageView CreateImageView(VkImage image, VkFormat format, VkImageAspectFlags aspect_flags);
     void CreateImageViews();
     void CreateRenderPass();
     void CreateGraphicsPipeline();
@@ -77,6 +78,7 @@ private:
     void RecreateSwapchain();
     void CleanupSwapchain();
     void CreateTextureSampler();
+    void CreateDepthResources();
 
     // Rendering
 
@@ -112,7 +114,9 @@ private:
     void EndTransientCommandBuffer(VkCommandBuffer command_buffer);
     void CreateUniformBuffers();
 
-    TextureHandle CreateImage(glm::ivec2 extent, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties);
+    TextureHandle CreateImage(glm::ivec2 extent, VkFormat image_format, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties);
+    void TransitionImageLayout(VkImage image, VkImageLayout old_layout, VkImageLayout new_layout);
+    void CopyBufferToImage(VkBuffer buffer, VkImage image, glm::ivec2 size);
 
     VkViewport GetViewport() const;
     VkRect2D GetScissor() const;
@@ -159,6 +163,7 @@ private:
     VkDescriptorSetLayout texture_set_layout_ = VK_NULL_HANDLE;
     VkDescriptorPool texture_pool_ = VK_NULL_HANDLE;
     VkSampler texture_sampler_ = VK_NULL_HANDLE;
+    TextureHandle depth_texture_;
 
     gsl::not_null<GLFW_Window *> window_;
     bool validation_ = false;
