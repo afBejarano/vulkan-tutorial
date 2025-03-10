@@ -8,3 +8,5 @@
 #include <string_view>
 #include "glm/glm.hpp"
 #include <functional>
+
+#define MAX_BUFFERED_FRAMES (2)
