@@ -3,18 +3,18 @@
 //
 
 #include "graphics.h"
-
 #include <iostream>
 #include <precomp.h>
 #include <cstring>
 #include <set>
 #include <spdlog/spdlog.h>
-
+#include "object.h"
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.cpp"
 #include "uniform_transformations.h"
 #include "utilities.h"
 #include "vertex.h"
+#include "spdlog/fmt/bundled/chrono.h"
 
 #pragma region VK_FUNCITON_EXT_IMPL
 
@@ -25,9 +25,9 @@ VKAPI_ATTR VkResult VKAPI_CALL vkCreateDebugUtilsMessengerEXT(VkInstance instanc
     auto function = reinterpret_cast<PFN_vkCreateDebugUtilsMessengerEXT>(vkGetInstanceProcAddr(
         instance, "vkCreateDebugUtilsMessengerEXT"));
 
-    if (function != nullptr) {
+    if (function != nullptr)
         return function(instance, pCreateInfo, pAllocator, pDebugMessenger);
-    }
+
     return VK_ERROR_EXTENSION_NOT_PRESENT;
 }
 
@@ -37,9 +37,8 @@ VKAPI_ATTR void VKAPI_CALL vkDestroyDebugUtilsMessengerEXT(VkInstance instance,
     auto function = reinterpret_cast<PFN_vkDestroyDebugUtilsMessengerEXT>(vkGetInstanceProcAddr(
         instance, "vkDestroyDebugUtilsMessengerEXT"));
 
-    if (function != nullptr) {
+    if (function != nullptr)
         return function(instance, pDebugMessenger, pAllocator);
-    }
 }
 
 #pragma endregion
@@ -126,21 +125,15 @@ void Graphics::CreateInstance() {
 
     std::vector<gsl::czstring> required_extensions = GetRequiredInstanceExtensions();
 
-    VkApplicationInfo app_info = {};
-    app_info.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;
-    app_info.pNext = nullptr;
-    app_info.pApplicationName = "Udemy Course";
-    app_info.applicationVersion = VK_MAKE_VERSION(0, 0, 1);
-    app_info.pEngineName = "Vulkan Engine";
-    app_info.engineVersion = VK_MAKE_VERSION(0, 0, 1);
-    app_info.apiVersion = VK_API_VERSION_1_2;
+    VkApplicationInfo app_info = {
+        VK_STRUCTURE_TYPE_APPLICATION_INFO, nullptr, "FirstEngine", VK_MAKE_VERSION(0, 0, 1), "VulkanEngine",
+        VK_MAKE_VERSION(0, 0, 1), VK_API_VERSION_1_2
+    };
 
-    VkInstanceCreateInfo create_info = {};
-    create_info.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO;
-    create_info.pNext = nullptr;
-    create_info.pApplicationInfo = &app_info;
-    create_info.enabledExtensionCount = required_extensions.size();
-    create_info.ppEnabledExtensionNames = required_extensions.data();
+    VkInstanceCreateInfo create_info = {
+        VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO, nullptr, 0, &app_info, 0, nullptr,
+        static_cast<std::uint32_t>(required_extensions.size()), required_extensions.data()
+    };
 
     const VkDebugUtilsMessengerCreateInfoEXT messenger_create_info = GetCreateDebugMessengerInfo();
 
@@ -148,9 +141,6 @@ void Graphics::CreateInstance() {
         create_info.pNext = &messenger_create_info;
         create_info.enabledLayerCount = validationLayers.size();
         create_info.ppEnabledLayerNames = validationLayers.data();
-    } else {
-        create_info.enabledLayerCount = 0;
-        create_info.ppEnabledLayerNames = nullptr;
     }
 
     if (vkCreateInstance(&create_info, nullptr, &instance_) != VK_SUCCESS) {
@@ -314,7 +304,7 @@ void Graphics::CreateLogicalDeviceAndQueues() {
         std::exit(EXIT_FAILURE);
     }
 
-    std::set<std::uint32_t> unique_queue_families = {
+    std::set unique_queue_families = {
         indices.graphics_family.value(), indices.present_family.value()
     };
 
@@ -323,12 +313,9 @@ void Graphics::CreateLogicalDeviceAndQueues() {
     std::vector<VkDeviceQueueCreateInfo> queue_create_infos;
 
     for (std::uint32_t queue_family: unique_queue_families) {
-        VkDeviceQueueCreateInfo queue_create_info = {};
-        queue_create_info.sType = VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO;
-        queue_create_info.queueFamilyIndex = queue_family;
-        queue_create_info.queueCount = 1;
-        queue_create_info.pQueuePriorities = &queue_priorities;
-        queue_create_info.pNext = nullptr;
+        VkDeviceQueueCreateInfo queue_create_info = {
+            VK_STRUCTURE_TYPE_DEVICE_QUEUE_CREATE_INFO, nullptr, 0, queue_family, 1, &queue_priorities
+        };
         queue_create_infos.push_back(queue_create_info);
     }
 
@@ -588,8 +575,8 @@ void Graphics::CreateGraphicsPipeline() {
     viewport_state_create_info.scissorCount = 1;
     viewport_state_create_info.pScissors = &scissor;
 
-    auto vertex_binding_description = Vertex::GetBindingDescription();
-    auto vertex_attribute_descriptions = Vertex::GetAttributeDescriptions();
+    auto vertex_binding_description = oVertex::GetBindingDescription();
+    auto vertex_attribute_descriptions = oVertex::GetAttributeDescriptions();
 
     VkPipelineVertexInputStateCreateInfo vertex_input_state_create_info = {};
     vertex_input_state_create_info.sType = VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO;
@@ -659,7 +646,8 @@ void Graphics::CreateGraphicsPipeline() {
 
     std::array descriptor_set_layouts = {
         uniform_set_layout_,
-        texture_set_layout_
+        uniform_bp_set_layout_,
+        texture_set_layout_,
     };
 
     pipeline_layout_create_info.setLayoutCount = descriptor_set_layouts.size();
@@ -1018,8 +1006,8 @@ BufferHandle Graphics::CreateBuffer(const VkDeviceSize size, VkBufferUsageFlags 
     buffer_info.usage = usage;
     buffer_info.sharingMode = VK_SHARING_MODE_EXCLUSIVE;
 
-    if (vkCreateBuffer(device_, &buffer_info, VK_NULL_HANDLE, &buffer.buffer) != VK_SUCCESS)
-        throw std::runtime_error("failed to create vertex buffer!");
+    if (VkResult res = vkCreateBuffer(device_, &buffer_info, VK_NULL_HANDLE, &buffer.buffer); res != VK_SUCCESS)
+        throw std::runtime_error("failed to create vertex buffer!" + std::to_string(res));
 
     VkMemoryRequirements memory_requirements;
     vkGetBufferMemoryRequirements(device_, buffer.buffer, &memory_requirements);
@@ -1037,6 +1025,34 @@ BufferHandle Graphics::CreateBuffer(const VkDeviceSize size, VkBufferUsageFlags 
     vkBindBufferMemory(device_, buffer.buffer, buffer.memory, 0);
 
     return buffer;
+}
+
+BufferHandle Graphics::CreateoVertexBuffer(std::vector<oVertex> vertices) const {
+    const VkDeviceSize size = vertices.size() * sizeof(oVertex);
+    BufferHandle staging_handle = CreateBuffer(
+        size,
+        VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+        VK_MEMORY_PROPERTY_HOST_COHERENT_BIT | VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT
+    );
+
+    void *mapped_data;
+    vkMapMemory(device_, staging_handle.memory, 0, size, 0, &mapped_data);
+    std::memcpy(mapped_data, vertices.data(), size);
+    vkUnmapMemory(device_, staging_handle.memory);
+
+    BufferHandle gpu_handle = CreateBuffer(size, VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+                                           VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+
+    VkCommandBuffer transient_commands = BeginTransientCommandBuffer();
+
+    VkBufferCopy copy_info = {0, 0, size};
+    vkCmdCopyBuffer(transient_commands, staging_handle.buffer, gpu_handle.buffer, 1, &copy_info);
+
+    EndTransientCommandBuffer(transient_commands);
+
+    DestroyBuffer(staging_handle);
+
+    return gpu_handle;
 }
 
 BufferHandle Graphics::CreateVertexBuffer(const gsl::span<Vertex> vertices) const {
@@ -1093,6 +1109,32 @@ BufferHandle Graphics::CreateIndexBuffer(gsl::span<std::uint32_t> indices) const
     return gpu_handle;
 }
 
+BufferHandle Graphics::CreateIndexBuffer(const std::vector<std::uint32_t> &indices) const {
+    const VkDeviceSize size = indices.size() * sizeof(std::uint32_t);
+    BufferHandle staging_handle = CreateBuffer(size, VK_BUFFER_USAGE_TRANSFER_SRC_BIT,
+                                               VK_MEMORY_PROPERTY_HOST_COHERENT_BIT |
+                                               VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT);
+
+    void *mapped_data;
+    vkMapMemory(device_, staging_handle.memory, 0, size, 0, &mapped_data);
+    std::memcpy(mapped_data, indices.data(), size);
+    vkUnmapMemory(device_, staging_handle.memory);
+
+    BufferHandle gpu_handle = CreateBuffer(size, VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_DST_BIT,
+                                           VK_MEMORY_PROPERTY_DEVICE_LOCAL_BIT);
+
+    VkCommandBuffer transient_commands = BeginTransientCommandBuffer();
+
+    VkBufferCopy copy_info = {0, 0, size};
+    vkCmdCopyBuffer(transient_commands, staging_handle.buffer, gpu_handle.buffer, 1, &copy_info);
+
+    EndTransientCommandBuffer(transient_commands);
+
+    DestroyBuffer(staging_handle);
+
+    return gpu_handle;
+}
+
 void Graphics::DestroyBuffer(const BufferHandle handle) const {
     vkDeviceWaitIdle(device_);
     vkDestroyBuffer(device_, handle.buffer, VK_NULL_HANDLE);
@@ -1110,15 +1152,38 @@ void Graphics::RenderBuffer(const BufferHandle buffer_handle, const std::uint32_
 }
 
 void Graphics::RenderIndexedBuffer(BufferHandle vertex_buffer, BufferHandle index_buffer,
-                                   std::uint32_t index_count) const {
+                                   std::uint32_t index_count, std::int32_t index_offset) const {
     VkDeviceSize offset = 0;
     vkCmdBindDescriptorSets(buffered_frames_[current_frame_].command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                            pipeline_layout_, 0, 1, &buffered_frames_[current_frame_].uniform_set,
+                            pipeline_layout_, 0, 2, std::array{
+                                buffered_frames_[current_frame_].uniform_set, buffered_frames_[current_frame_].bp_set
+                            }.data(),
                             0, VK_NULL_HANDLE);
     vkCmdBindVertexBuffers(buffered_frames_[current_frame_].command_buffer, 0, 1, &vertex_buffer.buffer, &offset);
     vkCmdBindIndexBuffer(buffered_frames_[current_frame_].command_buffer, index_buffer.buffer, 0, VK_INDEX_TYPE_UINT32);
-    vkCmdDrawIndexed(buffered_frames_[current_frame_].command_buffer, index_count, 1, 0, 0, 0);
+    vkCmdDrawIndexed(buffered_frames_[current_frame_].command_buffer, index_count, 1, 0, index_offset, 0);
     SetModelMatrix(glm::mat4(1.0f));
+}
+
+void Graphics::RenderModel(BufferHandle vertex_buffer, BufferHandle index_buffer, object object,
+                           const std::vector<TextureHandle> &textures, std::vector<Material_UBO> material_ubos,
+                           const glm::mat4 &modelMatrix) const {
+    int offset = 0;
+    VkDeviceSize dOffset = 0;
+    vkCmdBindDescriptorSets(buffered_frames_[current_frame_].command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
+                            pipeline_layout_, 0, 2, std::array{
+                                buffered_frames_[current_frame_].uniform_set, buffered_frames_[current_frame_].bp_set
+                            }.data(),
+                            0, VK_NULL_HANDLE);
+    vkCmdBindVertexBuffers(buffered_frames_[current_frame_].command_buffer, 0, 1, &vertex_buffer.buffer, &dOffset);
+    vkCmdBindIndexBuffer(buffered_frames_[current_frame_].command_buffer, index_buffer.buffer, 0, VK_INDEX_TYPE_UINT32);
+    SetModelMatrix(modelMatrix);
+    for (const auto &[indices, materialId]: object.getMeshes()) {
+        SetTexture(textures[materialId]);
+        SetUbo(material_ubos[materialId]);
+        vkCmdDrawIndexed(buffered_frames_[current_frame_].command_buffer, indices.size(), 1, offset, 0, 0);
+        offset += static_cast<int>(indices.size());
+    }
 }
 
 void Graphics::SetModelMatrix(const glm::mat4 &model) const {
@@ -1129,6 +1194,10 @@ void Graphics::SetModelMatrix(const glm::mat4 &model) const {
 void Graphics::SetViewProjection(const glm::mat4 &view, const glm::mat4 &proj) const {
     UniformTransformations uniforms{view, proj};
     memcpy(buffered_frames_[current_frame_].uniform_buffer_location, &uniforms, sizeof(UniformTransformations));
+}
+
+void Graphics::SetUbo(Material_UBO &material_ubos) const {
+    memcpy(buffered_frames_[current_frame_].bp_buffer_location, &material_ubos, sizeof(Material_UBO));
 }
 
 VkCommandBuffer Graphics::BeginTransientCommandBuffer() const {
@@ -1171,6 +1240,13 @@ void Graphics::CreateUniformBuffers() {
                                                    VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
 
         vkMapMemory(device_, frame.uniform_buffer_handle.memory, 0, buffer_size, 0, &frame.uniform_buffer_location);
+
+        VkDeviceSize bp_size = sizeof(Material_UBO);
+        frame.bp_buffer_handle = CreateBuffer(bp_size, VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT,
+                                              VK_MEMORY_PROPERTY_HOST_VISIBLE_BIT |
+                                              VK_MEMORY_PROPERTY_HOST_COHERENT_BIT);
+
+        vkMapMemory(device_, frame.bp_buffer_handle.memory, 0, bp_size, 0, &frame.bp_buffer_location);
     }
 }
 
@@ -1181,12 +1257,29 @@ void Graphics::CreateDescriptorSetLayouts() {
     uniform_layout_binding.descriptorCount = 1;
     uniform_layout_binding.stageFlags = VK_SHADER_STAGE_ALL_GRAPHICS;
 
+    VkDescriptorSetLayoutBinding uniform_bp_layout_binding = {};
+    uniform_bp_layout_binding.binding = 0;
+    uniform_bp_layout_binding.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+    uniform_bp_layout_binding.descriptorCount = 1;
+    uniform_bp_layout_binding.stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
+
     VkDescriptorSetLayoutCreateInfo uniform_layout_info = {};
     uniform_layout_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
     uniform_layout_info.bindingCount = 1;
     uniform_layout_info.pBindings = &uniform_layout_binding;
 
+    VkDescriptorSetLayoutCreateInfo bp_uniform_layout_info = {};
+    bp_uniform_layout_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO;
+    bp_uniform_layout_info.bindingCount = 1;
+    bp_uniform_layout_info.pBindings = &uniform_bp_layout_binding;
+
     if (vkCreateDescriptorSetLayout(device_, &uniform_layout_info, nullptr, &uniform_set_layout_) !=
+        VK_SUCCESS) {
+        spdlog::error("Failed to create descriptor set layout!");
+        std::exit(EXIT_FAILURE);
+    }
+
+    if (vkCreateDescriptorSetLayout(device_, &bp_uniform_layout_info, nullptr, &uniform_bp_set_layout_) !=
         VK_SUCCESS) {
         spdlog::error("Failed to create descriptor set layout!");
         std::exit(EXIT_FAILURE);
@@ -1213,13 +1306,13 @@ void Graphics::CreateDescriptorSetLayouts() {
 void Graphics::CreateDescriptorPools() {
     VkDescriptorPoolSize uniform_pool_size = {};
     uniform_pool_size.type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
-    uniform_pool_size.descriptorCount = MAX_BUFFERED_FRAMES;
+    uniform_pool_size.descriptorCount = MAX_BUFFERED_FRAMES * 2;
 
     VkDescriptorPoolCreateInfo uniform_pool_info = {};
     uniform_pool_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO;
     uniform_pool_info.poolSizeCount = 1;
     uniform_pool_info.pPoolSizes = &uniform_pool_size;
-    uniform_pool_info.maxSets = MAX_BUFFERED_FRAMES;
+    uniform_pool_info.maxSets = MAX_BUFFERED_FRAMES * 2;
 
     if (vkCreateDescriptorPool(device_, &uniform_pool_info, nullptr, &uniform_pool_) != VK_SUCCESS) {
         spdlog::error("Failed to create descriptor pool!");
@@ -1254,7 +1347,20 @@ void Graphics::CreateDescriptorSets() {
         descriptor_set_allocate_info.descriptorSetCount = 1;
         descriptor_set_allocate_info.pSetLayouts = &uniform_set_layout_;
 
-        if (vkAllocateDescriptorSets(device_, &descriptor_set_allocate_info, &frame.uniform_set) != VK_SUCCESS) {
+        VkDescriptorSetAllocateInfo bp_descriptor_set_allocate_info = {};
+        bp_descriptor_set_allocate_info.sType = VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO;
+        bp_descriptor_set_allocate_info.descriptorPool = uniform_pool_;
+        bp_descriptor_set_allocate_info.descriptorSetCount = 1;
+        bp_descriptor_set_allocate_info.pSetLayouts = &uniform_bp_set_layout_;
+
+        VkResult res = vkAllocateDescriptorSets(device_, &descriptor_set_allocate_info, &frame.uniform_set);
+
+        if (res != VK_SUCCESS) {
+            spdlog::error("Failed to allocate descriptor sets!");
+            std::exit(EXIT_FAILURE);
+        }
+
+        if (vkAllocateDescriptorSets(device_, &bp_descriptor_set_allocate_info, &frame.bp_set) != VK_SUCCESS) {
             spdlog::error("Failed to allocate descriptor sets!");
             std::exit(EXIT_FAILURE);
         }
@@ -1274,6 +1380,22 @@ void Graphics::CreateDescriptorSets() {
         descriptor_write.pBufferInfo = &descriptor_buffer_info;
 
         vkUpdateDescriptorSets(device_, 1, &descriptor_write, 0, nullptr);
+
+        VkDescriptorBufferInfo bp_descriptor_buffer_info = {};
+        bp_descriptor_buffer_info.buffer = frame.bp_buffer_handle.buffer;
+        bp_descriptor_buffer_info.offset = 0;
+        bp_descriptor_buffer_info.range = sizeof(Material_UBO);
+
+        VkWriteDescriptorSet bp_descriptor_write = {};
+        bp_descriptor_write.sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+        bp_descriptor_write.dstSet = frame.bp_set;
+        bp_descriptor_write.dstBinding = 0;
+        bp_descriptor_write.dstArrayElement = 0;
+        bp_descriptor_write.descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER;
+        bp_descriptor_write.descriptorCount = 1;
+        bp_descriptor_write.pBufferInfo = &bp_descriptor_buffer_info;
+
+        vkUpdateDescriptorSets(device_, 1, &bp_descriptor_write, 0, nullptr);
     }
 }
 
@@ -1501,7 +1623,7 @@ void Graphics::DestroyTexture(const TextureHandle &handle) const {
 
 void Graphics::SetTexture(const TextureHandle &handle) const {
     vkCmdBindDescriptorSets(buffered_frames_[current_frame_].command_buffer, VK_PIPELINE_BIND_POINT_GRAPHICS,
-                            pipeline_layout_, 1, 1,
+                            pipeline_layout_, 2, 1,
                             &handle.descriptor_set, 0, VK_NULL_HANDLE);
 }
 
@@ -1538,6 +1660,7 @@ Graphics::~Graphics() {
 
         for (Frame &buffered_frame: buffered_frames_) {
             DestroyBuffer(buffered_frame.uniform_buffer_handle);
+            DestroyBuffer(buffered_frame.bp_buffer_handle);
 
             if (buffered_frame.image_available_semaphore != VK_NULL_HANDLE)
                 vkDestroySemaphore(device_, buffered_frame.image_available_semaphore, VK_NULL_HANDLE);
@@ -1551,6 +1674,9 @@ Graphics::~Graphics() {
 
         if (uniform_set_layout_ != VK_NULL_HANDLE)
             vkDestroyDescriptorSetLayout(device_, uniform_set_layout_, VK_NULL_HANDLE);
+
+        if (uniform_bp_set_layout_ != VK_NULL_HANDLE)
+            vkDestroyDescriptorSetLayout(device_, uniform_bp_set_layout_, VK_NULL_HANDLE);
 
         if (command_pool_ != VK_NULL_HANDLE)
             vkDestroyCommandPool(device_, command_pool_, VK_NULL_HANDLE);

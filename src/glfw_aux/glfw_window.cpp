@@ -7,9 +7,15 @@
 #include "glfw_monitor.h"
 
 namespace veng {
-    GLFW_Window::GLFW_Window(const gsl::czstring &title, const glm::ivec2 size) {
+    GLFW_Window::GLFW_Window(const gsl::czstring &title, const glm::ivec2 size, bool full_size) {
         glfwWindowHint(GLFW_CLIENT_API, GLFW_NO_API);
-        window_ = glfwCreateWindow(size.x, size.y, title, nullptr, nullptr);
+        if (full_size) {
+            glfwGetPrimaryMonitor();
+            glm::ivec2 monitorSize = GetMonitorWorkAreaSize(glfwGetPrimaryMonitor());
+            window_ = glfwCreateWindow(monitorSize.x, monitorSize.y, "Vulkan Engine", glfwGetPrimaryMonitor(), nullptr);
+        }
+        else
+            window_ = glfwCreateWindow(size.x, size.y, title, nullptr, nullptr);
         if (window_ == nullptr) {
             std::cout << "Failed to create GLFW window" << std::endl;
             std::exit(EXIT_FAILURE);

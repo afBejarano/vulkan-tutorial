@@ -29,4 +29,5 @@ function(add_shaders TARGET_NAME)
         SOURCES ${SHADER_SOURCE_FILES}
         BYPRODUCTS ${SHADER_PRODUCTS}
     )
+
 endfunction()

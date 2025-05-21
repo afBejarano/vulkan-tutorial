@@ -4,50 +4,47 @@
 #include <glfw_aux/glfw_initialization.h>
 #include <glfw_aux/glfw_window.h>
 #include "graphics.h"
+#include "object.h"
 #include "glm/gtc/matrix_transform.hpp"
 
 std::int32_t main(std::int32_t argc, gsl::zstring *argv) {
     veng::GLFWInitialization _glfw;
 
-    veng::GLFW_Window window{"Vulkan Engine", {800, 600}};
+    veng::GLFW_Window window{"Vulkan Engine", {800, 600}, false};
     if (!window.TryMoveToMonitor(0)) {
         std::cerr << "Failed to move monitor" << std::endl;
     }
 
     veng::Graphics graphics{gsl::make_not_null(&window)};
 
-    std::array vertices = {
-        veng::Vertex({-0.5f, -0.5f, 0.0f}, {0.0f, 1.0f}),
-        veng::Vertex({0.5f, -0.5f, 0.0f}, {1.0f, 1.0f}),
-        veng::Vertex({-0.5f, 0.5f, 0.0f}, {0.0f, 0.0f}),
-        veng::Vertex({0.5f, 0.5f, 0.0f}, {1.0f, 0.0f}),
-    };
+    glm::vec2 size = window.GetWindowSize();
 
-    const veng::BufferHandle buffer = graphics.CreateVertexBuffer(vertices);
+    glm::mat4 rotation = rotate(glm::mat4(1.0f), glm::radians(0.0f), glm::vec3(1.0f, 0.0f, 0.0f)) * glm::scale(glm::identity<glm::mat4>(), glm::vec3(0.1f, 0.1f, 0.1f));
+    glm::mat4 view = translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, -10.0f));
+    glm::mat4 proj = glm::perspective(glm::radians(60.0f), size.x / size.y, 0.1f, 100.0f);
 
-    std::array<std::uint32_t, 6> indices = {
-        0, 3, 2, 0, 1, 3
-    };
+    veng::object object("./assets/Spider/spider.obj", "./assets/Spider/");
 
-    veng::BufferHandle index_buffer = graphics.CreateIndexBuffer(indices);
-
-    glm::mat4 rotation = glm::rotate(glm::mat4(1.0f), glm::radians(90.0f), glm::vec3(0.0f, 0.0f, 1.0f));
-    glm::mat4 view = glm::translate(glm::mat4(1.0f), glm::vec3(0.0f, 0.0f, -2.0f));
-    glm::mat4 proj = glm::perspective(glm::radians(60.0f), 800.0f / 600.0f, 0.1f, 100.0f);
+    veng::BufferHandle buffer = graphics.CreateoVertexBuffer(object.getOVertices());
+    veng::BufferHandle index_buffer = graphics.CreateIndexBuffer(object.getIndices());
     graphics.SetViewProjection(view, proj);
 
-    veng::TextureHandle handle = graphics.CreateTexture("assets/textures/paving-stones.jpg");
+    std::vector<veng::TextureHandle> texture_handles;
+
+    for (const auto &texture: object.getTextures())
+        texture_handles.push_back(graphics.CreateTexture(texture.c_str()));
 
     while (!window.ShouldClose()) {
         glfwPollEvents();
         if (graphics.BeginFrame()) {
-            graphics.SetTexture(handle);
-            graphics.RenderIndexedBuffer(buffer, index_buffer, indices.size());
+            graphics.RenderModel(buffer, index_buffer, object, texture_handles, object.getMaterialUBOs(), rotation);
             graphics.EndFrame();
         }
     }
 
-    graphics.DestroyTexture(handle);
+    for (const auto &texture: texture_handles)
+        graphics.DestroyTexture(texture);
+
     graphics.DestroyBuffer(buffer);
     graphics.DestroyBuffer(index_buffer);
 

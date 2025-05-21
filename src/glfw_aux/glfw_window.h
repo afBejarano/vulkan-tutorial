@@ -6,7 +6,7 @@ struct GLFWwindow;
 namespace veng {
     class GLFW_Window {
     public:
-        GLFW_Window(const gsl::czstring &title, glm::ivec2 size);
+        GLFW_Window(const gsl::czstring &title, glm::ivec2 size, bool full_size);
 
         ~GLFW_Window();
 

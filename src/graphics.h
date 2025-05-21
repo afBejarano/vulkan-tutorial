@@ -9,6 +9,7 @@
 #include <gsl/algorithm>
 
 #include "buffer_handle.h"
+#include "object.h"
 #include "vertex.h"
 #include "texture_handle.h"
 
@@ -21,8 +22,11 @@ struct Frame {
     VkCommandBuffer command_buffer = VK_NULL_HANDLE;
 
     VkDescriptorSet uniform_set = VK_NULL_HANDLE;
+    VkDescriptorSet bp_set = VK_NULL_HANDLE;
     BufferHandle uniform_buffer_handle;
+    BufferHandle bp_buffer_handle;
     void *uniform_buffer_location;
+    void *bp_buffer_location;
 };
 
 class Graphics final {
@@ -34,13 +38,20 @@ public:
     bool BeginFrame();
     void SetModelMatrix(const glm::mat4 &model) const;
     void SetViewProjection(const glm::mat4 &view, const glm::mat4 &proj) const;
+    void SetUbo(Material_UBO &material_ubos) const;
     void SetTexture(const TextureHandle &handle) const;
     void RenderBuffer(BufferHandle buffer_handle, std::uint32_t vertex_count) const;
-    void RenderIndexedBuffer(BufferHandle vertex_buffer, BufferHandle index_buffer, std::uint32_t index_count) const;
+    void RenderIndexedBuffer(BufferHandle vertex_buffer, BufferHandle index_buffer, std::uint32_t index_count,
+                             std::int32_t offset) const;
+    void RenderModel(BufferHandle vertex_buffer, BufferHandle index_buffer, object object,
+                     const std::vector<TextureHandle> &textures, std::vector<Material_UBO> material_ubos,
+                     const glm::mat4 &modelMatrix) const;
     void EndFrame();
 
     [[nodiscard]] BufferHandle CreateVertexBuffer(gsl::span<Vertex> vertices) const;
+    BufferHandle CreateoVertexBuffer(std::vector<oVertex> vertices) const;
     [[nodiscard]] BufferHandle CreateIndexBuffer(gsl::span<std::uint32_t> indices) const;
+    BufferHandle CreateIndexBuffer(const std::vector<std::uint32_t> &indices) const;
     void DestroyBuffer(BufferHandle handle) const;
     TextureHandle CreateTexture(gsl::czstring path) const;
     void DestroyTexture(const TextureHandle &handle) const;
@@ -121,13 +132,14 @@ private:
 
     [[nodiscard]] std::uint32_t FindMemoryType(std::uint32_t memory_type_bits, VkMemoryPropertyFlags properties) const;
 
-    [[nodiscard]] BufferHandle CreateBuffer(VkDeviceSize size, VkBufferUsageFlags usage, VkMemoryPropertyFlags properties) const;
+    [[nodiscard]] BufferHandle CreateBuffer(VkDeviceSize size, VkBufferUsageFlags usage,
+                                            VkMemoryPropertyFlags properties) const;
     [[nodiscard]] VkCommandBuffer BeginTransientCommandBuffer() const;
     void EndTransientCommandBuffer(VkCommandBuffer command_buffer) const;
     void CreateUniformBuffers();
 
     [[nodiscard]] TextureHandle CreateImage(glm::ivec2 extent, VkFormat image_format, VkBufferUsageFlags usage,
-                              VkMemoryPropertyFlags properties) const;
+                                            VkMemoryPropertyFlags properties) const;
     void TransitionImageLayout(VkImage image, VkImageLayout old_layout, VkImageLayout new_layout) const;
     void CopyBufferToImage(VkBuffer buffer, VkImage image, glm::ivec2 size) const;
 
@@ -163,6 +175,7 @@ private:
     std::uint32_t current_image_index_ = 0;
 
     VkDescriptorSetLayout uniform_set_layout_ = VK_NULL_HANDLE;
+    VkDescriptorSetLayout uniform_bp_set_layout_ = VK_NULL_HANDLE;
     VkDescriptorPool uniform_pool_ = VK_NULL_HANDLE;
 
     VkDescriptorSetLayout texture_set_layout_ = VK_NULL_HANDLE;
